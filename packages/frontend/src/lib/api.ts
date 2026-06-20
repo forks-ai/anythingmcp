@@ -294,6 +294,62 @@ export const audit = {
     }>('/api/audit/analytics', { token }),
 };
 
+// Knowledge Graph
+export interface KgNode {
+  id: string;
+  entity: string;
+  label: string;
+  connectorId: string;
+  connectorName: string | null;
+  fields: Array<{ name: string; type: string }>;
+  toolNames: string[];
+  source: string;
+  confidence: number;
+  observations: number;
+}
+
+export interface KgEdge {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  kind: string;
+  matchKey: string | null;
+  source: string;
+  confidence: number;
+  observations: number;
+  isManual: boolean;
+  status: string;
+}
+
+export const knowledgeGraph = {
+  get: (token: string) =>
+    request<{ nodes: KgNode[]; edges: KgEdge[]; lastBuiltAt: string | null }>(
+      '/api/knowledge-graph',
+      { token },
+    ),
+  stats: (token: string) =>
+    request<{ nodes: number; edges: number; suggested: number }>(
+      '/api/knowledge-graph/stats',
+      { token },
+    ),
+  rebuild: (token: string) =>
+    request<{ connectors: number; nodes: number; edges: number; invocations: number }>(
+      '/api/knowledge-graph/rebuild',
+      { token, method: 'POST' },
+    ),
+  setEdgeStatus: (token: string, id: string, status: 'active' | 'rejected') =>
+    request<KgEdge>(`/api/knowledge-graph/edges/${id}`, {
+      token,
+      method: 'PATCH',
+      body: { status },
+    }),
+  deleteEdge: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/api/knowledge-graph/edges/${id}`, {
+      token,
+      method: 'DELETE',
+    }),
+};
+
 // Server settings (public)
 export const server = {
   info: () =>

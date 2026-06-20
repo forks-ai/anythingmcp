@@ -33,6 +33,7 @@ const NAV_ITEMS = [
   { href: '/connectors', label: 'Connectors', icon: CableIcon },
   { href: '/mcp-server', label: 'MCP Servers', icon: ServerIcon },
 
+  { href: '/knowledge-graph', label: 'Knowledge Graph', icon: GraphIcon },
   { href: '/logs', label: 'Logs', icon: ListIcon },
   { href: '/settings', label: 'Settings', icon: GearIcon },
 ];
@@ -258,6 +259,17 @@ function ServerIcon({ size = 16 }: { size?: number }) {
       <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
       <line x1="6" x2="6.01" y1="6" y2="6" />
       <line x1="6" x2="6.01" y1="18" y2="18" />
+    </svg>
+  );
+}
+
+function GraphIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="5" cy="6" r="2.5" />
+      <circle cx="19" cy="6" r="2.5" />
+      <circle cx="12" cy="18" r="2.5" />
+      <path d="M7.2 7.2 10.6 16M16.8 7.2 13.4 16M7 6h10" />
     </svg>
   );
 }
