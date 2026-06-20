@@ -395,6 +395,11 @@ model McpTool {
   //   headers: { ... }
   // }
 
+  // JSON Schema of the tool's response, surfaced to MCP clients as the tool's
+  // outputSchema. Auto-inferred from real responses (Test / observed) or from
+  // the import spec. Null = not known yet (tool served without an output schema).
+  outputSchema Json? @map("output_schema")
+
   // How to transform the API response for MCP
   responseMapping Json? @map("response_mapping")
   // {

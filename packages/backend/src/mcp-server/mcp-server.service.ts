@@ -78,6 +78,7 @@ export class McpServerService implements OnModuleInit {
           responseMapping: tool.responseMapping as
             | Record<string, unknown>
             | undefined,
+          outputSchema: tool.outputSchema as unknown,
         };
 
         // Register in our internal registry (for execution lookup)
@@ -148,6 +149,7 @@ export class McpServerService implements OnModuleInit {
           responseMapping: tool.responseMapping as
             | Record<string, unknown>
             | undefined,
+          outputSchema: tool.outputSchema as unknown,
         };
 
         this.toolRegistry.registerTool(toolDef);

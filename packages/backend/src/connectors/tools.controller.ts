@@ -25,6 +25,7 @@ import { Type } from 'class-transformer';
 import { PrismaService } from '../common/prisma.service';
 import { McpServerService } from '../mcp-server/mcp-server.service';
 import { ConnectorsService } from './connectors.service';
+import { inferJsonSchema } from './output-schema.util';
 
 class CreateToolDto {
   @ApiProperty({
@@ -366,6 +367,22 @@ export class ToolsController {
         inputs,
       );
       const durationMs = Date.now() - startTime;
+      // Auto-fill the tool's output schema from this real response (first time
+      // only). Best-effort — never let it affect the test result.
+      if (!tool.outputSchema) {
+        try {
+          const inferred = inferJsonSchema(result);
+          if (inferred) {
+            await this.prisma.mcpTool.update({
+              where: { id: tool.id },
+              data: { outputSchema: inferred as any },
+            });
+            await this.mcpServer.reloadConnectorTools(connectorId);
+          }
+        } catch {
+          /* schema inference is best-effort */
+        }
+      }
       return {
         ok: true,
         durationMs,

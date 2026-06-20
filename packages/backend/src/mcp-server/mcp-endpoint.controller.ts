@@ -22,6 +22,7 @@ import { DynamicMcpTools } from './dynamic-mcp-tools';
 import { RolesService } from '../roles/roles.service';
 import { registerDemoTools } from './mcp-demo.tools';
 import { KgService } from '../knowledge-graph/kg.service';
+import { outputSchemaToZodShape } from '../connectors/output-schema.util';
 
 /**
  * Per-server MCP endpoint controller.
@@ -299,7 +300,10 @@ export class McpEndpointController {
           );
       }
 
-      mcpServer.tool(tool.name, tool.description, zodShape, async (args: any) => {
+      // Permissive output shape (only for object-shaped inferred schemas).
+      const outShape = tool.outputSchema ? outputSchemaToZodShape(tool.outputSchema) : null;
+
+      const handler = async (args: any) => {
         let ctx = invocationContext;
         let toolArgs = args;
         if (captureIntent && args && typeof args === 'object') {
@@ -308,8 +312,31 @@ export class McpEndpointController {
           if (_intent) ctx = { ...invocationContext, intent: String(_intent).slice(0, 2000) };
         }
         const result = await this.toolExecutor.executeTool(tool.name, toolArgs, ctx);
+        // When an outputSchema is advertised, the SDK requires structuredContent
+        // on success. Provide the parsed object (permissive schema never fails);
+        // errors skip validation, so leave them untouched.
+        if (outShape && !result.isError) {
+          let structured: Record<string, unknown> = {};
+          try {
+            const parsed = JSON.parse(result.content?.[0]?.text ?? '{}');
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) structured = parsed;
+          } catch {
+            /* keep {} */
+          }
+          return { ...result, structuredContent: structured };
+        }
         return result;
-      });
+      };
+
+      if (outShape) {
+        mcpServer.registerTool(
+          tool.name,
+          { description: tool.description, inputSchema: zodShape, outputSchema: outShape },
+          handler,
+        );
+      } else {
+        mcpServer.tool(tool.name, tool.description, zodShape, handler);
+      }
     }
 
     // 5b. Inject the org-level Knowledge Graph helper tool. Lets the agent ask
