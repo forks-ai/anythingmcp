@@ -370,15 +370,23 @@ export const knowledgeGraph = {
     }),
   skills: {
     list: (token: string) => request<KgSkill[]>('/api/knowledge-graph/skills', { token }),
-    generate: (token: string) =>
+    generate: (token: string, mcpServerId?: string) =>
       request<{ created: number; model?: string }>('/api/knowledge-graph/skills/generate', {
         token,
         method: 'POST',
+        body: mcpServerId ? { mcpServerId } : {},
       }),
     apply: (token: string, id: string) =>
       request<KgSkill>(`/api/knowledge-graph/skills/${id}/apply`, { token, method: 'POST' }),
     dismiss: (token: string, id: string) =>
       request<KgSkill>(`/api/knowledge-graph/skills/${id}/dismiss`, { token, method: 'POST' }),
+    update: (
+      token: string,
+      id: string,
+      patch: { title?: string; whenToUse?: string; instruction?: string; status?: string },
+    ) => request<KgSkill>(`/api/knowledge-graph/skills/${id}`, { token, method: 'PATCH', body: patch }),
+    remove: (token: string, id: string) =>
+      request<{ ok: boolean }>(`/api/knowledge-graph/skills/${id}`, { token, method: 'DELETE' }),
   },
 };
 
@@ -386,6 +394,8 @@ export interface KgSkill {
   id: string;
   connectorId: string | null;
   connector?: { name: string } | null;
+  mcpServerId: string | null;
+  mcpServer?: { name: string } | null;
   title: string;
   whenToUse: string;
   instruction: string;

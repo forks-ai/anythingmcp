@@ -476,6 +476,7 @@ model McpServerConfig {
   connectors      McpServerConnector[]
   apiKeys         McpApiKey[]
   toolInvocations ToolInvocation[]
+  kgSkills        KgSkillSuggestion[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -717,6 +718,10 @@ model KgSkillSuggestion {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   connectorId    String?      @map("connector_id")
   connector      Connector?   @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  // A skill is scoped to a single connector OR to a whole MCP server (which
+  // understands the combined context of all its assigned connectors).
+  mcpServerId    String?          @map("mcp_server_id")
+  mcpServer      McpServerConfig? @relation(fields: [mcpServerId], references: [id], onDelete: SetNull)
 
   title         String
   whenToUse     String   @db.Text @map("when_to_use")

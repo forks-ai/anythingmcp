@@ -73,14 +73,17 @@ export class KgController {
 
   @Post('skills/generate')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Generate skill suggestions from captured user intents (LLM)' })
-  async generateSkills(@Req() req: any) {
-    return this.skills.generate(req.user.organizationId);
+  @ApiOperation({
+    summary:
+      'Generate skill suggestions from captured intents — per-connector, or server-wide when mcpServerId is given',
+  })
+  async generateSkills(@Req() req: any, @Body() body: { mcpServerId?: string }) {
+    return this.skills.generate(req.user.organizationId, { mcpServerId: body?.mcpServerId });
   }
 
   @Post('skills/:id/apply')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Apply a skill suggestion (appends it to the connector guidance)' })
+  @ApiOperation({ summary: 'Activate a skill (composed into the MCP server instructions)' })
   async applySkill(@Req() req: any, @Param('id') id: string) {
     return this.skills.apply(req.user.organizationId, id);
   }
@@ -90,6 +93,24 @@ export class KgController {
   @ApiOperation({ summary: 'Dismiss a skill suggestion' })
   async dismissSkill(@Req() req: any, @Param('id') id: string) {
     return this.skills.dismiss(req.user.organizationId, id);
+  }
+
+  @Patch('skills/:id')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Edit a skill (title / when / instruction / status)' })
+  async updateSkill(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: { title?: string; whenToUse?: string; instruction?: string; status?: string },
+  ) {
+    return this.skills.update(req.user.organizationId, id, body);
+  }
+
+  @Delete('skills/:id')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Delete a skill' })
+  async deleteSkill(@Req() req: any, @Param('id') id: string) {
+    return this.skills.remove(req.user.organizationId, id);
   }
 
   @Post('rebuild')
