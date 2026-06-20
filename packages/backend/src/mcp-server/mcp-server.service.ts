@@ -10,6 +10,7 @@ import { ToolRegistry } from './tool-registry';
 import { DynamicMcpTools } from './dynamic-mcp-tools';
 import { RolesService } from '../roles/roles.service';
 import { McpServersService } from '../mcp-servers/mcp-servers.service';
+import { McpSessionManager } from '../mcp-servers/mcp-session.manager';
 import { KgStaticService } from '../knowledge-graph/kg-static.service';
 
 @Injectable()
@@ -27,6 +28,7 @@ export class McpServerService implements OnModuleInit {
     private readonly rolesService: RolesService,
     private readonly mcpServersService: McpServersService,
     private readonly kgStatic: KgStaticService,
+    private readonly sessionManager: McpSessionManager,
   ) {
     this.encryptionKey = getRequiredSecret(
       'ENCRYPTION_KEY',
@@ -181,6 +183,14 @@ export class McpServerService implements OnModuleInit {
           this.logger.warn(`KG static sync failed for ${connectorId}: ${e.message}`),
         );
     }
+
+    // Push tools/list_changed to any live stateful MCP sessions whose surface
+    // this affects. Fire-and-forget: must never block or fail a tool reload.
+    this.sessionManager
+      .notifyToolsChanged()
+      .catch((e) =>
+        this.logger.warn(`MCP session notify failed: ${e.message}`),
+      );
   }
 
   /**

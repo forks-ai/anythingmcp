@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { KgSkillService } from '../knowledge-graph/kg-skill.service';
+import { McpSessionManager } from './mcp-session.manager';
 
 @Injectable()
 export class McpServersService {
@@ -9,6 +10,7 @@ export class McpServersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly kgSkills: KgSkillService,
+    private readonly sessionManager: McpSessionManager,
   ) {}
 
   async findAllByUser(userId: string) {
@@ -126,6 +128,14 @@ export class McpServersService {
         }),
       ),
     ]);
+
+    // A server's connector assignment changed: live stateful sessions must
+    // pick up added/removed tools. Fire-and-forget; never fail the assignment.
+    this.sessionManager
+      .notifyToolsChanged()
+      .catch((e) =>
+        this.logger.warn(`MCP session notify failed: ${e.message}`),
+      );
   }
 
   async getConnectorIds(serverId: string): Promise<string[]> {

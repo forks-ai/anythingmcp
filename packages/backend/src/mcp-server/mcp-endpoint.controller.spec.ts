@@ -43,12 +43,20 @@ describe('McpEndpointController — tenant isolation', () => {
       isEnabled: jest.fn().mockResolvedValue(true),
       captureIntentEnabled: jest.fn().mockResolvedValue(false),
     };
+    const sessionManager = {
+      get: jest.fn(),
+      touch: jest.fn(),
+      add: jest.fn(),
+      remove: jest.fn().mockResolvedValue(undefined),
+      notifyToolsChanged: jest.fn().mockResolvedValue(undefined),
+    };
     controller = new McpEndpointController(
       mcpServersService,
       toolRegistry,
       toolExecutor,
       rolesService,
       kgService as any,
+      sessionManager as any,
     );
   });
 
