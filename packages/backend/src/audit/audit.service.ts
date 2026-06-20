@@ -22,6 +22,11 @@ export class AuditService {
      */
     userEmail?: string;
     mcpServerId?: string;
+    /** Denormalized tenant + connector scope for per-org analytics and the KG. */
+    organizationId?: string;
+    connectorId?: string;
+    /** Whether the call was routed through the proxy/unblocker (metering). */
+    usedProxy?: boolean;
     input: Record<string, unknown>;
     output?: Record<string, unknown>;
     status: 'SUCCESS' | 'ERROR' | 'TIMEOUT';
@@ -37,6 +42,9 @@ export class AuditService {
           toolId: data.toolId,
           userId: resolvedUserId,
           mcpServerId: data.mcpServerId,
+          organizationId: data.organizationId,
+          connectorId: data.connectorId,
+          usedProxy: data.usedProxy ?? false,
           input: data.input as any,
           output: data.output as any,
           status: data.status as InvocationStatus,
@@ -55,6 +63,9 @@ export class AuditService {
             data: {
               toolId: data.toolId,
               mcpServerId: data.mcpServerId,
+              organizationId: data.organizationId,
+              connectorId: data.connectorId,
+              usedProxy: data.usedProxy ?? false,
               input: data.input as any,
               output: data.output as any,
               status: data.status as InvocationStatus,

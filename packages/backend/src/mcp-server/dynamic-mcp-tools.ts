@@ -186,6 +186,7 @@ export class DynamicMcpTools {
     }
 
     const startTime = Date.now();
+    let usedProxy = false;
 
     try {
       const envVars = tool.connectorConfig.envVars || {};
@@ -206,6 +207,7 @@ export class DynamicMcpTools {
       // Decide proxy routing (env present + tool opted in + cloud rate-limit).
       // Throws on over-quota (choice B). Returns null → direct request.
       const proxyUrl = await this.resolveProxy(tool, context?.organizationId);
+      usedProxy = proxyUrl != null;
 
       const engineConfig = {
         baseUrl: this.resolveInternalBaseUrl(interpolatedConfig.baseUrl),
@@ -240,6 +242,9 @@ export class DynamicMcpTools {
         userId: context?.userId,
         userEmail: context?.userEmail,
         mcpServerId: context?.mcpServerId,
+        organizationId: context?.organizationId,
+        connectorId: tool.connectorId,
+        usedProxy,
         input: params,
         output: result as Record<string, unknown>,
         status: 'SUCCESS',
@@ -275,6 +280,9 @@ export class DynamicMcpTools {
         userId: context?.userId,
         userEmail: context?.userEmail,
         mcpServerId: context?.mcpServerId,
+        organizationId: context?.organizationId,
+        connectorId: tool.connectorId,
+        usedProxy,
         input: params,
         status: 'ERROR',
         durationMs,
