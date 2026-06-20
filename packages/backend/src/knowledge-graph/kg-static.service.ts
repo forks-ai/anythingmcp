@@ -60,7 +60,14 @@ export class KgStaticService {
       select: {
         id: true,
         organizationId: true,
-        tools: { select: { name: true, description: true, parameters: true } },
+        tools: {
+          select: {
+            name: true,
+            description: true,
+            parameters: true,
+            outputSchema: true,
+          },
+        },
       },
     });
     if (!connector) return { nodes: 0, edges: 0, skipped: true };
@@ -73,6 +80,7 @@ export class KgStaticService {
       name: t.name,
       description: t.description,
       parameters: t.parameters as ToolLike['parameters'],
+      outputSchema: t.outputSchema as ToolLike['outputSchema'],
     }));
     const slug = deriveSlug(connector.tools.map((t) => t.name));
     const graph = buildStaticGraph(slug, tools);
@@ -154,6 +162,7 @@ export class KgStaticService {
               entity: n.entity,
               label: n.label,
               fields: n.fields as any,
+              outputFields: n.outputFields as any,
               toolNames: n.toolNames as any,
               source: 'STATIC',
               confidence: n.confidence,
@@ -167,6 +176,7 @@ export class KgStaticService {
             data: {
               label: n.label,
               fields: n.fields as any,
+              outputFields: n.outputFields as any,
               toolNames: n.toolNames as any,
               confidence: Math.max(existing.confidence, n.confidence),
               lastSeenAt: new Date(),
@@ -269,7 +279,11 @@ export function deriveSlug(toolNames: string[]): string {
 function hashGraph(graph: StaticGraph): string {
   const canonical = {
     nodes: [...graph.nodes]
-      .map((n) => ({ e: n.entity, f: n.fields.map((f) => `${f.name}:${f.type}`).sort() }))
+      .map((n) => ({
+        e: n.entity,
+        f: n.fields.map((f) => `${f.name}:${f.type}`).sort(),
+        o: [...n.outputFields].sort(),
+      }))
       .sort((a, b) => a.e.localeCompare(b.e)),
     edges: [...graph.edges]
       .map((e) => `${e.sourceEntity}|${e.targetEntity}|${e.kind}|${e.matchKey ?? ''}`)

@@ -7,7 +7,13 @@
 
 import { extractEntity, singularize } from './entity-extraction';
 import { fkCandidate, fkCandidatesFromText } from './fk-inference';
-import { KgEdgeDraft, KgNodeDraft, StaticGraph, ToolLike } from './types';
+import {
+  JsonSchemaLike,
+  KgEdgeDraft,
+  KgNodeDraft,
+  StaticGraph,
+  ToolLike,
+} from './types';
 
 const ENTITY_CONFIDENCE = 0.5;
 const REFERENCES_CONFIDENCE = 0.5;
@@ -15,6 +21,35 @@ const PARENT_CHILD_CONFIDENCE = 0.6;
 // FK references guessed from description prose are a weaker signal than a real
 // parameter, so they rank below the min-confidence filter's mid-point.
 const DESCRIPTION_REFERENCES_CONFIDENCE = 0.35;
+// An FK in a RETURNED field is a solid structural signal (the tool literally
+// emits the foreign key), on par with an input parameter reference.
+const OUTPUT_REFERENCES_CONFIDENCE = 0.5;
+// Data-flow inferred purely from schemas (output field of A == input/FK field of
+// B). Useful but indirect, so mid-confidence.
+const PRODUCES_CONSUMES_CONFIDENCE = 0.5;
+// Cap how many field names we mine from one output schema (defends against
+// pathological/huge inferred schemas).
+const MAX_OUTPUT_FIELDS = 200;
+
+/** Collect the distinct field NAMES a JSON-Schema (object/array, nested) emits. */
+export function outputSchemaFieldNames(
+  schema: JsonSchemaLike | null | undefined,
+): string[] {
+  const out = new Set<string>();
+  const visit = (s: JsonSchemaLike | undefined, depth: number): void => {
+    if (!s || typeof s !== 'object' || depth > 6 || out.size >= MAX_OUTPUT_FIELDS) return;
+    if (s.properties) {
+      for (const [name, child] of Object.entries(s.properties)) {
+        if (out.size >= MAX_OUTPUT_FIELDS) break;
+        out.add(name);
+        visit(child, depth + 1);
+      }
+    }
+    if (s.items) visit(s.items, depth + 1);
+  };
+  visit(schema ?? undefined, 0);
+  return [...out];
+}
 
 export function buildStaticGraph(slug: string, tools: ToolLike[]): StaticGraph {
   const nodes = new Map<string, KgNodeDraft>();
@@ -30,6 +65,7 @@ export function buildStaticGraph(slug: string, tools: ToolLike[]): StaticGraph {
         entity: ent.entity,
         label: ent.label,
         fields: [],
+        outputFields: [],
         toolNames: [],
         source: 'static' as const,
         confidence: ENTITY_CONFIDENCE,
@@ -42,6 +78,10 @@ export function buildStaticGraph(slug: string, tools: ToolLike[]): StaticGraph {
       if (!node.fields.some((f) => f.name === fname)) {
         node.fields.push({ name: fname, type: def?.type ?? 'unknown' });
       }
+    }
+    // Union of returned field names across the entity's tools.
+    for (const fname of outputSchemaFieldNames(tool.outputSchema)) {
+      if (!node.outputFields.includes(fname)) node.outputFields.push(fname);
     }
     nodes.set(ent.entity, node);
   }
@@ -101,6 +141,51 @@ export function buildStaticGraph(slug: string, tools: ToolLike[]): StaticGraph {
     if (!entity.includes('_')) continue;
     const parent = singularize(entity.split('_')[0]);
     if (entitySet.has(parent)) addEdge(parent, entity, 'parent_child');
+  }
+
+  // Pass 2c — references from FK-style fields in the RETURNED payload. A tool
+  // that emits `customer_id` in its output points its entity at Customer, even
+  // when no input parameter declares it.
+  for (const node of nodes.values()) {
+    for (const fname of node.outputFields) {
+      const target = fkCandidate(fname);
+      if (target && entitySet.has(target)) {
+        addEdge(node.entity, target, 'references', fname, OUTPUT_REFERENCES_CONFIDENCE);
+      }
+    }
+  }
+
+  // Pass 2d — data-flow: an FK-style field a tool RETURNS that another entity's
+  // tools take as INPUT (output property matches input property). Links the
+  // producer entity to the consumer entity. Restricted to join-key fields so
+  // generic names (status, name, …) never connect everything.
+  const producersByField = new Map<string, Set<string>>(); // field -> producer entities
+  const consumersByField = new Map<string, Set<string>>(); // field -> consumer entities
+  const addTo = (m: Map<string, Set<string>>, field: string, entity: string) => {
+    let s = m.get(field);
+    if (!s) {
+      s = new Set();
+      m.set(field, s);
+    }
+    s.add(entity);
+  };
+  for (const node of nodes.values()) {
+    for (const fname of node.outputFields) {
+      if (fkCandidate(fname)) addTo(producersByField, fname, node.entity);
+    }
+    for (const f of node.fields) {
+      if (fkCandidate(f.name)) addTo(consumersByField, f.name, node.entity);
+    }
+  }
+  for (const [field, producers] of producersByField) {
+    const consumers = consumersByField.get(field);
+    if (!consumers) continue;
+    for (const p of producers) {
+      for (const c of consumers) {
+        if (p === c) continue;
+        addEdge(p, c, 'produces_consumes', field, PRODUCES_CONSUMES_CONFIDENCE);
+      }
+    }
   }
 
   return {

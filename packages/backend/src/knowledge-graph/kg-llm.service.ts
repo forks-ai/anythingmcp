@@ -8,13 +8,14 @@ const MAX_ENTITIES = 120; // cost cap: never send more than this to the model
 
 const SYSTEM_PROMPT = `You analyze a software workspace's data entities (drawn from connected SaaS/ERP systems) and infer relationships a naive name-matching heuristic misses.
 
-You receive a JSON list of entities, each with a stable "ref", its connector, its name and its field names.
+You receive a JSON list of entities, each with a stable "ref", its connector, its name, its input field names ("fields") and the field names its tools RETURN ("outputs").
 
 Return STRICT JSON: {"relationships":[{"from":"<ref>","to":"<ref>","kind":"same_identity"|"references","confidence":0..1,"reason":"<short>"}]}.
 
 Rules:
 - "same_identity": the two entities represent the SAME real-world thing across DIFFERENT connectors (e.g. a CRM "person", a billing "customer" and a support "user" are the same person). This is the most valuable output.
 - "references": one entity points at another (a foreign-key-like link) that the field names alone don't make obvious.
+- DATA FLOW is a strong signal: if a field one entity RETURNS (in "outputs") matches a key/id field another entity takes as INPUT ("fields"), that is usually a "references" link from the producer to the consumer.
 - Only include links you are reasonably confident about. Prefer precision over recall. No self-links. Keep reasons under 12 words.
 - Never invent refs that are not in the input.`;
 
@@ -62,6 +63,7 @@ export class KgLlmService {
         id: true,
         entity: true,
         fields: true,
+        outputFields: true,
         connector: { select: { name: true } },
       },
       orderBy: { entity: 'asc' },
@@ -75,10 +77,15 @@ export class KgLlmService {
       connector: n.connector?.name ?? '',
       entity: n.entity,
       fields: ((n.fields as Array<{ name: string }>) ?? []).slice(0, 12).map((f) => f.name),
+      outputs: ((n.outputFields as string[]) ?? []).slice(0, 12),
     }));
 
     const hash = createHash('sha256')
-      .update(JSON.stringify(catalog.map((c) => ({ c: c.connector, e: c.entity, f: c.fields }))))
+      .update(
+        JSON.stringify(
+          catalog.map((c) => ({ c: c.connector, e: c.entity, f: c.fields, o: c.outputs })),
+        ),
+      )
       .digest('hex');
     const prev = await this.prisma.orgSettings.findUnique({
       where: { organizationId_key: { organizationId, key: 'kg_llm_hash' } },
@@ -94,6 +101,7 @@ export class KgLlmService {
         connector: c.connector,
         entity: c.entity,
         fields: c.fields,
+        outputs: c.outputs,
       })),
     });
 

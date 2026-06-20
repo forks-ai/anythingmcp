@@ -48,10 +48,20 @@ export class KgObservationalService {
       select: { connectorId: true, lastObservedAt: true },
     });
     const watermark = new Map(states.map((s) => [s.connectorId, s.lastObservedAt]));
-    const floor = states
+    // Lower bound for the invocation scan. If ANY connector has no watermark
+    // yet (e.g. just connected), we must scan from the beginning for it; only
+    // when every connector is watermarked can we start at the earliest one.
+    // (A plain reduce seeded with epoch would always collapse to epoch and, at
+    // >MAX_INVOCATIONS_PER_RUN invocations, never advance past the oldest page.)
+    const anyUnwatermarked = connectors.some((c) => !watermark.get(c.id));
+    const watermarkTimes = states
       .map((s) => s.lastObservedAt)
       .filter((d): d is Date => !!d)
-      .reduce((min, d) => (d < min ? d : min), new Date(0));
+      .map((d) => d.getTime());
+    const floor =
+      anyUnwatermarked || watermarkTimes.length === 0
+        ? new Date(0)
+        : new Date(Math.min(...watermarkTimes));
 
     const invocations = await this.prisma.toolInvocation.findMany({
       where: {

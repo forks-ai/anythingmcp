@@ -12,7 +12,12 @@
  * scoping, upsert, RLS) is the caller's concern.
  */
 
-export type KgEdgeKind = 'references' | 'parent_child';
+export type KgEdgeKind =
+  | 'references'
+  | 'parent_child'
+  // Data-flow inferred from schemas: an entity whose tools RETURN a field that
+  // another entity's tools take as a (FK-style) input parameter.
+  | 'produces_consumes';
 
 export interface KgFieldDraft {
   name: string;
@@ -26,6 +31,9 @@ export interface KgNodeDraft {
   label: string;
   /** Union of input parameters across the entity's tools (the writable surface). */
   fields: KgFieldDraft[];
+  /** Union of field NAMES the entity's tools RETURN (from their outputSchema).
+   *  Drives data-flow edges and feeds the LLM enrichment. */
+  outputFields: string[];
   /** Tool names that touch this entity (used later for `how_to_obtain`). */
   toolNames: string[];
   source: 'static';
@@ -57,4 +65,14 @@ export interface ToolLike {
   parameters?: {
     properties?: Record<string, { type?: string } | undefined>;
   };
+  /** JSON Schema of the tool's response (mcp_tools.output_schema), when known.
+   *  Property names are mined for data-flow edges. */
+  outputSchema?: JsonSchemaLike | null;
+}
+
+/** Minimal JSON-Schema shape we walk to collect returned field names. */
+export interface JsonSchemaLike {
+  type?: string;
+  properties?: Record<string, JsonSchemaLike | undefined>;
+  items?: JsonSchemaLike;
 }

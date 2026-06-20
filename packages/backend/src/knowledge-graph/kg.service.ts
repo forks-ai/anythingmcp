@@ -15,6 +15,11 @@ import { KgLlmService } from './kg-llm.service';
 @Injectable()
 export class KgService {
   private readonly logger = new Logger(KgService.name);
+  // Per-org cooldown between auto-triggered observational ingests. A burst of
+  // tool calls then triggers at most one ingest per window (bounds cost under
+  // multi-tenant load). Falls back to an in-memory map when Redis is absent.
+  private readonly observeCooldownSec = Number(process.env.KG_OBSERVE_COOLDOWN_SEC) || 45;
+  private readonly localObserveAt = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -96,6 +101,42 @@ export class KgService {
   /** Whether intent capture is on for this org (used by the MCP path). */
   captureIntentEnabled(organizationId: string): Promise<boolean> {
     return this.staticSvc.getFlag(organizationId, 'kg_capture_intent', false);
+  }
+
+  /**
+   * Opportunistically refresh the observational layer after tool traffic, so
+   * the graph grows from real usage without depending on a cron (matters for
+   * self-host, and keeps the UI fresh). Debounced per org and fire-and-forget:
+   * never blocks or throws into the caller's request path.
+   */
+  async scheduleObservationalIngest(organizationId?: string): Promise<void> {
+    if (!organizationId) return;
+    try {
+      // Per-org cooldown. Redis: first caller in the window sets the key (TTL);
+      // later callers see count>1 and back off. In-memory fallback otherwise.
+      if (this.redis.isConnected) {
+        const key = `kg_observe_cooldown:${organizationId}`;
+        const count = await this.redis.incr(key);
+        if (count === 1) await this.redis.expire(key, this.observeCooldownSec);
+        if (count > 1) return;
+      } else {
+        const now = Date.now();
+        const last = this.localObserveAt.get(organizationId) ?? 0;
+        if (now - last < this.observeCooldownSec * 1000) return;
+        this.localObserveAt.set(organizationId, now);
+      }
+    } catch {
+      return; // cooldown bookkeeping must never break the caller
+    }
+    // Detached: do not await. ingestOrganization is gated by kg_enabled and is
+    // idempotent (per-connector watermark).
+    void this.observationalSvc
+      .ingestOrganization(organizationId)
+      .catch((e) =>
+        this.logger.warn(
+          `KG observational auto-ingest failed for ${organizationId}: ${e.message}`,
+        ),
+      );
   }
 
   /** Full graph for an org, RBAC-filtered, ready for the UI. */

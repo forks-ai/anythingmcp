@@ -14,6 +14,7 @@ import { DeploymentService } from '../common/deployment.service';
 import { PrismaService } from '../common/prisma.service';
 import { interpolateConnectorConfig } from '../common/env-interpolation.util';
 import { resolveInternalDbRestUrl } from '../common/db-rest.util';
+import { KgService } from '../knowledge-graph/kg.service';
 import type { RegisteredTool } from './tool-registry';
 
 /**
@@ -38,6 +39,7 @@ export class DynamicMcpTools {
     private readonly soapEngine: SoapEngine,
     private readonly mcpClientEngine: McpClientEngine,
     private readonly databaseEngine: DatabaseEngine,
+    private readonly kgService: KgService,
   ) {}
 
   /**
@@ -258,6 +260,9 @@ export class DynamicMcpTools {
           mcpServerName: context.mcpServerName,
         }) : undefined,
       });
+
+      // Grow the knowledge graph from this real call (debounced, fire-and-forget).
+      void this.kgService.scheduleObservationalIngest(context?.organizationId);
 
       const resultText = JSON.stringify(result, null, 2);
 

@@ -1,0 +1,1 @@
+ALTER TABLE "kg_nodes" ADD COLUMN IF NOT EXISTS "output_fields" JSONB NOT NULL DEFAULT '[]';
