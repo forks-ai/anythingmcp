@@ -5,6 +5,15 @@ const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || 'http://localhost:4000';
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // Allow the Next dev server to be reached through a tunnel (ngrok/cloudflared)
+  // from a different origin — otherwise dev assets/HMR misbehave and the page
+  // doesn't fully hydrate (login form falls back to a native GET submit).
+  allowedDevOrigins: [
+    '*.ngrok-free.app',
+    '*.ngrok.app',
+    '*.trycloudflare.com',
+    '49f6-213-164-76-122.ngrok-free.app',
+  ],
   // Proxy backend routes so a single port (3000) can serve everything
   async rewrites() {
     return [
