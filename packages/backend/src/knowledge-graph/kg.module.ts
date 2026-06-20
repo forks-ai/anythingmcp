@@ -4,6 +4,7 @@ import { KgService } from './kg.service';
 import { KgStaticService } from './kg-static.service';
 import { KgObservationalService } from './kg-observational.service';
 import { KgLlmService } from './kg-llm.service';
+import { KgSkillService } from './kg-skill.service';
 
 /**
  * Knowledge Graph module. PrismaService, RedisService, DeploymentService and
@@ -13,7 +14,7 @@ import { KgLlmService } from './kg-llm.service';
 @Global()
 @Module({
   controllers: [KgController],
-  providers: [KgService, KgStaticService, KgObservationalService, KgLlmService],
-  exports: [KgService, KgStaticService, KgObservationalService, KgLlmService],
+  providers: [KgService, KgStaticService, KgObservationalService, KgLlmService, KgSkillService],
+  exports: [KgService, KgStaticService, KgObservationalService, KgLlmService, KgSkillService],
 })
 export class KgModule {}

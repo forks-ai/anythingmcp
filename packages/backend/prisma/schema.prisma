@@ -40,6 +40,7 @@ model Organization {
   kgEdges          KgEdge[]
   kgConnectorState KgConnectorState[]
   kgValueSeen      KgValueSeen[]
+  kgSkills         KgSkillSuggestion[]
 
   @@map("organizations")
 }
@@ -328,6 +329,7 @@ model Connector {
   toolInvocations ToolInvocation[]
   kgNodes         KgNode[]
   kgState         KgConnectorState?
+  kgSkills        KgSkillSuggestion[]
 
   @@index([organizationId])
   @@map("connectors")
@@ -704,6 +706,30 @@ model KgConnectorState {
 
   @@index([organizationId])
   @@map("kg_connector_state")
+}
+
+// LLM-proposed reusable skill/correction inferred from captured user intents
+// (e.g. "daily revenue should include order status 2/3/4, not only 4"). A human
+// reviews each; applying it appends the instruction to the connector's guidance.
+model KgSkillSuggestion {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String?      @map("connector_id")
+  connector      Connector?   @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+
+  title         String
+  whenToUse     String   @db.Text @map("when_to_use")
+  instruction   String   @db.Text
+  confidence    Float    @default(0)
+  evidenceCount Int      @default(0) @map("evidence_count")
+  status        String   @default("pending") // pending | applied | dismissed
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([organizationId])
+  @@map("kg_skill_suggestions")
 }
 
 // Short-lived, PII-safe index of identifier value HASHES (HMAC with a per-org

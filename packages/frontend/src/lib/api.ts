@@ -368,7 +368,31 @@ export const knowledgeGraph = {
       token,
       method: 'DELETE',
     }),
+  skills: {
+    list: (token: string) => request<KgSkill[]>('/api/knowledge-graph/skills', { token }),
+    generate: (token: string) =>
+      request<{ created: number; model?: string }>('/api/knowledge-graph/skills/generate', {
+        token,
+        method: 'POST',
+      }),
+    apply: (token: string, id: string) =>
+      request<KgSkill>(`/api/knowledge-graph/skills/${id}/apply`, { token, method: 'POST' }),
+    dismiss: (token: string, id: string) =>
+      request<KgSkill>(`/api/knowledge-graph/skills/${id}/dismiss`, { token, method: 'POST' }),
+  },
 };
+
+export interface KgSkill {
+  id: string;
+  connectorId: string | null;
+  connector?: { name: string } | null;
+  title: string;
+  whenToUse: string;
+  instruction: string;
+  confidence: number;
+  evidenceCount: number;
+  status: string;
+}
 
 // Server settings (public)
 export const server = {

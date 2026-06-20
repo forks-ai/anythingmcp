@@ -14,13 +14,17 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { KgService } from './kg.service';
+import { KgSkillService } from './kg-skill.service';
 
 @ApiTags('Knowledge Graph')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('api/knowledge-graph')
 export class KgController {
-  constructor(private readonly kg: KgService) {}
+  constructor(
+    private readonly kg: KgService,
+    private readonly skills: KgSkillService,
+  ) {}
 
   @Get()
   @Roles('ADMIN', 'EDITOR')
@@ -58,6 +62,34 @@ export class KgController {
   @ApiOperation({ summary: 'Run the optional LLM enrichment pass (suggests links)' })
   async enrich(@Req() req: any) {
     return this.kg.enrich(req.user.organizationId);
+  }
+
+  @Get('skills')
+  @Roles('ADMIN', 'EDITOR')
+  @ApiOperation({ summary: 'List skill suggestions inferred from captured intents' })
+  async listSkills(@Req() req: any) {
+    return this.skills.list(req.user.organizationId);
+  }
+
+  @Post('skills/generate')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Generate skill suggestions from captured user intents (LLM)' })
+  async generateSkills(@Req() req: any) {
+    return this.skills.generate(req.user.organizationId);
+  }
+
+  @Post('skills/:id/apply')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Apply a skill suggestion (appends it to the connector guidance)' })
+  async applySkill(@Req() req: any, @Param('id') id: string) {
+    return this.skills.apply(req.user.organizationId, id);
+  }
+
+  @Post('skills/:id/dismiss')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Dismiss a skill suggestion' })
+  async dismissSkill(@Req() req: any, @Param('id') id: string) {
+    return this.skills.dismiss(req.user.organizationId, id);
   }
 
   @Post('rebuild')

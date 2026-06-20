@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { knowledgeGraph, type KgNode, type KgEdge } from '@/lib/api';
 import { NavBar } from '@/components/nav-bar';
@@ -176,7 +177,15 @@ export default function KnowledgeGraphPage() {
               <> · built {new Date(lastBuiltAt).toLocaleString()}</>
             )}
           </p>
-          {status && <p className="text-xs text-[var(--muted-foreground)]">{status}</p>}
+          <div className="flex items-center gap-3">
+            {status && <p className="text-xs text-[var(--muted-foreground)]">{status}</p>}
+            <Link
+              href="/knowledge-graph/skills"
+              className="text-xs text-[var(--brand)] hover:underline whitespace-nowrap"
+            >
+              Skills →
+            </Link>
+          </div>
         </div>
 
         {/* Filters */}
