@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KgNode, KgEdge } from '@/lib/api';
 
 const NODE_PALETTE = [
@@ -83,13 +83,13 @@ export function KgGraph({ nodes, edges, selectedNodeId, onSelectNode, onSelectEd
   }, [pos]);
 
   const [view, setView] = useState(bounds);
-  // Re-fit when the node set changes.
+  // Re-fit the viewport whenever the graph's bounds change (node set/layout).
   const fitKey = `${nodes.length}:${bounds.x}:${bounds.y}:${bounds.w}:${bounds.h}`;
-  const lastFit = useRef('');
-  if (lastFit.current !== fitKey) {
-    lastFit.current = fitKey;
-    queueMicrotask(() => setView(bounds));
-  }
+  useEffect(() => {
+    setView(bounds);
+    // bounds is encoded by fitKey; depending on the object would loop every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey]);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
@@ -111,11 +111,12 @@ export function KgGraph({ nodes, edges, selectedNodeId, onSelectNode, onSelectEd
     drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
   };
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!drag.current || !svgRef.current) return;
+    const d = drag.current;
+    if (!d || !svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
-    const dx = ((e.clientX - drag.current.x) / rect.width) * view.w;
-    const dy = ((e.clientY - drag.current.y) / rect.height) * view.h;
-    setView((v) => ({ ...v, x: drag.current!.vx - dx, y: drag.current!.vy - dy }));
+    const dx = ((e.clientX - d.x) / rect.width) * view.w;
+    const dy = ((e.clientY - d.y) / rect.height) * view.h;
+    setView((v) => ({ ...v, x: d.vx - dx, y: d.vy - dy }));
   };
   const endDrag = () => {
     drag.current = null;
@@ -211,7 +212,7 @@ export function KgGraph({ nodes, edges, selectedNodeId, onSelectNode, onSelectEd
               fontSize="12"
               fontWeight={selected ? 700 : 500}
               fill="#1f2937"
-              style={{ pointerEvents: 'none' }}
+              style={{ userSelect: 'none' }}
             >
               {node.label}
             </text>
