@@ -314,11 +314,19 @@ export interface KgEdge {
   targetNodeId: string;
   kind: string;
   matchKey: string | null;
+  note?: string | null;
   source: string;
   confidence: number;
   observations: number;
   isManual: boolean;
   status: string;
+}
+
+export interface KgSettings {
+  enabled: boolean;
+  llmEnabled: boolean;
+  llmAvailable: boolean;
+  captureIntent: boolean;
 }
 
 export const knowledgeGraph = {
@@ -328,13 +336,17 @@ export const knowledgeGraph = {
       { token },
     ),
   getSettings: (token: string) =>
-    request<{ enabled: boolean }>('/api/knowledge-graph/settings', { token }),
-  setEnabled: (token: string, enabled: boolean) =>
-    request<{ enabled: boolean }>('/api/knowledge-graph/settings', {
-      token,
-      method: 'PUT',
-      body: { enabled },
-    }),
+    request<KgSettings>('/api/knowledge-graph/settings', { token }),
+  updateSettings: (
+    token: string,
+    body: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean },
+  ) =>
+    request<KgSettings>('/api/knowledge-graph/settings', { token, method: 'PUT', body }),
+  enrich: (token: string) =>
+    request<{ suggested: number; skipped?: boolean; model?: string }>(
+      '/api/knowledge-graph/enrich',
+      { token, method: 'POST' },
+    ),
   stats: (token: string) =>
     request<{ nodes: number; edges: number; suggested: number }>(
       '/api/knowledge-graph/stats',

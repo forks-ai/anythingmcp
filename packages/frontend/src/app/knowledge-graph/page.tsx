@@ -7,7 +7,7 @@ import { NavBar } from '@/components/nav-bar';
 import { Footer } from '@/components/footer';
 import { KgGraph } from '@/components/kg-graph';
 
-const SOURCES = ['STATIC', 'OBSERVED', 'MANUAL'] as const;
+const SOURCES = ['STATIC', 'OBSERVED', 'MANUAL', 'LLM'] as const;
 const KIND_LABEL: Record<string, string> = {
   references: 'references',
   produces_consumes: 'data flow',
@@ -23,6 +23,8 @@ export default function KnowledgeGraphPage() {
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [rebuilding, setRebuilding] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [llmEnabled, setLlmEnabled] = useState(false);
   const [status, setStatus] = useState<string>('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -52,6 +54,30 @@ export default function KnowledgeGraphPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!token) return;
+    knowledgeGraph.getSettings(token).then((s) => setLlmEnabled(s.llmEnabled)).catch(() => {});
+  }, [token]);
+
+  const enrich = async () => {
+    if (!token) return;
+    setEnriching(true);
+    setStatus('Asking the model for relationship suggestions…');
+    try {
+      const r = await knowledgeGraph.enrich(token);
+      setStatus(
+        r.skipped
+          ? 'No changes since the last enrichment.'
+          : `AI suggested ${r.suggested} relationship(s)${r.model ? ` (${r.model})` : ''}. Review them in the “suggested” layer.`,
+      );
+      load();
+    } catch (e: any) {
+      setStatus(e.message || 'Enrichment failed');
+    } finally {
+      setEnriching(false);
+    }
+  };
 
   const rebuild = async () => {
     if (!token) return;
@@ -118,15 +144,26 @@ export default function KnowledgeGraphPage() {
       <NavBar
         title="Knowledge Graph"
         actions={
-          isAdmin && enabled && (
-            <button
-              onClick={rebuild}
-              disabled={rebuilding}
-              className="px-3 py-1.5 rounded-md text-sm bg-[var(--brand)] text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {rebuilding ? 'Rebuilding…' : 'Rebuild graph'}
-            </button>
-          )
+          isAdmin && enabled ? (
+            <div className="flex items-center gap-2">
+              {llmEnabled && (
+                <button
+                  onClick={enrich}
+                  disabled={enriching || rebuilding}
+                  className="px-3 py-1.5 rounded-md text-sm border border-[var(--brand)] text-[var(--brand)] hover:bg-[var(--brand-light)] disabled:opacity-50"
+                >
+                  {enriching ? 'Enriching…' : 'Enrich with AI'}
+                </button>
+              )}
+              <button
+                onClick={rebuild}
+                disabled={rebuilding || enriching}
+                className="px-3 py-1.5 rounded-md text-sm bg-[var(--brand)] text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {rebuilding ? 'Rebuilding…' : 'Rebuild graph'}
+              </button>
+            </div>
+          ) : undefined
         }
       />
 
@@ -348,6 +385,12 @@ function EdgePanel({
         <Row k="Confidence" v={edge.confidence.toFixed(2)} />
         <Row k="Observations" v={String(edge.observations)} />
       </dl>
+
+      {edge.note && (
+        <p className="mt-2 text-[13px] text-[var(--muted-foreground)] italic">
+          &ldquo;{edge.note}&rdquo;
+        </p>
+      )}
 
       {isAdmin && (
         <div className="flex flex-wrap gap-2 mt-4">

@@ -45,9 +45,19 @@ export class KgController {
 
   @Put('settings')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Enable/disable the knowledge graph for this workspace' })
-  async setSettings(@Req() req: any, @Body() body: { enabled: boolean }) {
-    return this.kg.setEnabled(req.user.organizationId, !!body.enabled);
+  @ApiOperation({ summary: 'Update knowledge-graph settings for this workspace' })
+  async setSettings(
+    @Req() req: any,
+    @Body() body: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean },
+  ) {
+    return this.kg.updateSettings(req.user.organizationId, body);
+  }
+
+  @Post('enrich')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Run the optional LLM enrichment pass (suggests links)' })
+  async enrich(@Req() req: any) {
+    return this.kg.enrich(req.user.organizationId);
   }
 
   @Post('rebuild')

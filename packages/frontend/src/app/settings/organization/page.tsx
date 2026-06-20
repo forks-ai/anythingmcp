@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { organizations, knowledgeGraph } from '@/lib/api';
+import { organizations, knowledgeGraph, type KgSettings } from '@/lib/api';
 import * as Dialog from '@radix-ui/react-dialog';
 
 export default function OrganizationSettingsPage() {
@@ -24,8 +24,8 @@ export default function OrganizationSettingsPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Knowledge graph feature toggle
-  const [kgEnabled, setKgEnabled] = useState<boolean | null>(null);
+  // Knowledge graph feature toggles
+  const [kg, setKg] = useState<KgSettings | null>(null);
   const [kgSaving, setKgSaving] = useState(false);
 
   const isAdmin = user?.role === 'ADMIN';
@@ -37,15 +37,14 @@ export default function OrganizationSettingsPage() {
       setOrgId(org.id);
       setCreatedAt(org.createdAt);
     }).catch(() => {});
-    knowledgeGraph.getSettings(token).then((s) => setKgEnabled(s.enabled)).catch(() => {});
+    knowledgeGraph.getSettings(token).then(setKg).catch(() => {});
   }, [token]);
 
-  const toggleKg = async () => {
-    if (!token || kgEnabled === null) return;
+  const updateFlag = async (patch: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean }) => {
+    if (!token || !kg) return;
     setKgSaving(true);
     try {
-      const r = await knowledgeGraph.setEnabled(token, !kgEnabled);
-      setKgEnabled(r.enabled);
+      setKg(await knowledgeGraph.updateSettings(token, patch));
     } catch {
       /* keep previous state */
     } finally {
@@ -180,34 +179,37 @@ export default function OrganizationSettingsPage() {
       </div>
 
       {/* Features */}
-      <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-5">
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-5 space-y-4">
         <h3 className="text-sm font-semibold">Features</h3>
-        <div className="flex items-start justify-between gap-4 mt-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">Knowledge Graph</p>
-            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-              Auto-discovers relationships between your connectors&apos; entities (from tool
-              definitions and real usage) and exposes them to agents. Disabling it stops graph
-              building, hides the page, and removes the MCP helper tool for this workspace.
-            </p>
-          </div>
-          <button
-            onClick={toggleKg}
-            disabled={!isAdmin || kgSaving || kgEnabled === null}
-            role="switch"
-            aria-checked={!!kgEnabled}
-            title={isAdmin ? '' : 'Only admins can change this'}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
-              kgEnabled ? 'bg-[var(--brand)]' : 'bg-[var(--border)]'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                kgEnabled ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-        </div>
+
+        <FeatureToggle
+          label="Knowledge Graph"
+          description="Auto-discovers relationships between your connectors' entities (from tool definitions and real usage) and exposes them to agents. Disabling it stops graph building, hides the page, and removes the MCP helper tool."
+          checked={!!kg?.enabled}
+          disabled={!isAdmin || kgSaving || !kg}
+          isAdmin={isAdmin}
+          onToggle={() => updateFlag({ enabled: !kg?.enabled })}
+        />
+
+        {kg?.llmAvailable && (
+          <FeatureToggle
+            label="AI enrichment"
+            description="Let an LLM suggest extra relationships the heuristics miss (e.g. that a CRM person, a billing customer and a support user are the same person). Only entity and field names are sent — never your data. Suggestions await your confirmation. May incur model costs."
+            checked={!!kg?.llmEnabled}
+            disabled={!isAdmin || kgSaving || !kg?.enabled}
+            isAdmin={isAdmin}
+            onToggle={() => updateFlag({ llmEnabled: !kg?.llmEnabled })}
+          />
+        )}
+
+        <FeatureToggle
+          label="Capture user intent"
+          description="Adds an optional parameter to every MCP tool asking the agent for the user's original request. Captures the context behind each call so the graph can be optimized and skills suggested over time."
+          checked={!!kg?.captureIntent}
+          disabled={!isAdmin || kgSaving || !kg?.enabled}
+          isAdmin={isAdmin}
+          onToggle={() => updateFlag({ captureIntent: !kg?.captureIntent })}
+        />
       </div>
 
       {/* Danger Zone — ADMIN only */}
@@ -336,6 +338,47 @@ export default function OrganizationSettingsPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function FeatureToggle({
+  label,
+  description,
+  checked,
+  disabled,
+  isAdmin,
+  onToggle,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  isAdmin: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{description}</p>
+      </div>
+      <button
+        onClick={onToggle}
+        disabled={disabled}
+        role="switch"
+        aria-checked={checked}
+        title={isAdmin ? '' : 'Only admins can change this'}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+          checked ? 'bg-[var(--brand)]' : 'bg-[var(--border)]'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
     </div>
   );
 }

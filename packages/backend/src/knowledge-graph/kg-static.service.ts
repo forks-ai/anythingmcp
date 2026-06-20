@@ -22,23 +22,32 @@ export class KgStaticService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Whether the knowledge graph is enabled for this workspace (default true). */
-  async isEnabled(organizationId: string): Promise<boolean> {
+  /** Generic per-workspace boolean flag. */
+  async getFlag(organizationId: string, key: string, defaultValue: boolean): Promise<boolean> {
     const row = await this.prisma.orgSettings.findUnique({
-      where: { organizationId_key: { organizationId, key: 'kg_enabled' } },
+      where: { organizationId_key: { organizationId, key } },
       select: { value: true },
     });
-    return row?.value !== 'false';
+    if (!row) return defaultValue;
+    return row.value === 'true';
   }
 
-  /** Toggle the knowledge graph for a workspace. */
-  async setEnabled(organizationId: string, enabled: boolean): Promise<void> {
-    const value = enabled ? 'true' : 'false';
+  async setFlag(organizationId: string, key: string, value: boolean): Promise<void> {
+    const v = value ? 'true' : 'false';
     await this.prisma.orgSettings.upsert({
-      where: { organizationId_key: { organizationId, key: 'kg_enabled' } },
-      create: { organizationId, key: 'kg_enabled', value },
-      update: { value },
+      where: { organizationId_key: { organizationId, key } },
+      create: { organizationId, key, value: v },
+      update: { value: v },
     });
+  }
+
+  /** Whether the knowledge graph is enabled for this workspace (default true). */
+  isEnabled(organizationId: string): Promise<boolean> {
+    return this.getFlag(organizationId, 'kg_enabled', true);
+  }
+
+  setEnabled(organizationId: string, enabled: boolean): Promise<void> {
+    return this.setFlag(organizationId, 'kg_enabled', enabled);
   }
 
   /** Build + persist the static graph for one connector. */

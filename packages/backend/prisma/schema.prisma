@@ -521,6 +521,10 @@ model ToolInvocation {
   connectorId    String?       @map("connector_id")
   connector      Connector?    @relation(fields: [connectorId], references: [id], onDelete: SetNull)
 
+  // Optional natural-language user intent that led to this call (captured only
+  // when the workspace enables intent capture). Feeds graph/KB optimization.
+  intent     String? @db.Text
+
   // Whether this call was routed through the proxy/unblocker (for metering).
   usedProxy  Boolean @default(false) @map("used_proxy")
   // Optional metered cost snapshot at write time (micros). Reserved for the
@@ -630,6 +634,7 @@ enum KgSource {
   STATIC
   OBSERVED
   MANUAL
+  LLM
 }
 
 model KgNode {
@@ -671,6 +676,7 @@ model KgEdge {
   kind          String // references | produces_consumes | same_identity | parent_child
   matchKey      String?  @map("match_key")
   evidenceTools Json?    @map("evidence_tools") // string[]
+  note          String?  @db.Text // human/LLM rationale for the link
   source        KgSource @default(STATIC)
   confidence    Float    @default(0)
   observations  Int      @default(0)

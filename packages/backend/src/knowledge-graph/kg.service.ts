@@ -10,6 +10,7 @@ import { RedisService } from '../common/redis.service';
 import { RolesService } from '../roles/roles.service';
 import { KgStaticService } from './kg-static.service';
 import { KgObservationalService } from './kg-observational.service';
+import { KgLlmService } from './kg-llm.service';
 
 @Injectable()
 export class KgService {
@@ -21,6 +22,7 @@ export class KgService {
     private readonly roles: RolesService,
     private readonly staticSvc: KgStaticService,
     private readonly observationalSvc: KgObservationalService,
+    private readonly llmSvc: KgLlmService,
   ) {}
 
   /**
@@ -49,12 +51,51 @@ export class KgService {
   }
 
   async getSettings(organizationId: string) {
-    return { enabled: await this.staticSvc.isEnabled(organizationId) };
+    const [enabled, llmEnabled, captureIntent] = await Promise.all([
+      this.staticSvc.isEnabled(organizationId),
+      this.staticSvc.getFlag(organizationId, 'kg_llm_enabled', false),
+      this.staticSvc.getFlag(organizationId, 'kg_capture_intent', false),
+    ]);
+    return {
+      enabled,
+      llmEnabled,
+      llmAvailable: this.llmSvc.globallyAvailable(),
+      captureIntent,
+    };
   }
 
-  async setEnabled(organizationId: string, enabled: boolean) {
-    await this.staticSvc.setEnabled(organizationId, enabled);
-    return { enabled };
+  async updateSettings(
+    organizationId: string,
+    body: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean },
+  ) {
+    if (typeof body.enabled === 'boolean') {
+      await this.staticSvc.setEnabled(organizationId, body.enabled);
+    }
+    if (typeof body.llmEnabled === 'boolean') {
+      await this.staticSvc.setFlag(organizationId, 'kg_llm_enabled', body.llmEnabled);
+    }
+    if (typeof body.captureIntent === 'boolean') {
+      await this.staticSvc.setFlag(organizationId, 'kg_capture_intent', body.captureIntent);
+    }
+    return this.getSettings(organizationId);
+  }
+
+  /** Run the optional LLM enrichment pass (under the rebuild lock). */
+  async enrich(organizationId: string) {
+    const lockKey = `kg_enrich_lock:${organizationId}`;
+    const locked = this.redis.isConnected && (await this.redis.incr(lockKey)) > 1;
+    if (locked) throw new ConflictException('An AI enrichment is already running.');
+    if (this.redis.isConnected) await this.redis.expire(lockKey, 120);
+    try {
+      return await this.llmSvc.enrich(organizationId, { force: true });
+    } finally {
+      if (this.redis.isConnected) await this.redis.del(lockKey);
+    }
+  }
+
+  /** Whether intent capture is on for this org (used by the MCP path). */
+  captureIntentEnabled(organizationId: string): Promise<boolean> {
+    return this.staticSvc.getFlag(organizationId, 'kg_capture_intent', false);
   }
 
   /** Full graph for an org, RBAC-filtered, ready for the UI. */
@@ -99,6 +140,7 @@ export class KgService {
             targetNodeId: true,
             kind: true,
             matchKey: true,
+            note: true,
             source: true,
             confidence: true,
             observations: true,
