@@ -8,27 +8,30 @@ const MAX_INTENTS = 200;
 const JSON_SHAPE =
   'Return STRICT JSON: {"skills":[{"title":"<short>","whenToUse":"<when this rule applies>","instruction":"<imperative guidance for the agent>","confidence":0..1,"evidenceCount":<int>}]}.';
 
+const GROUNDING =
+  'Ground EVERY skill in the supplied intents (and connectors). Do not invent rules from general knowledge, and never reproduce any example wording from these instructions. If the inputs show no clear, recurring need, return {"skills":[]}.';
+
 const CONNECTOR_PROMPT = `You improve an AI tool-integration platform by turning real user requests ("intents") into reusable "skills" — short corrections or domain rules that make future tool calls behave the way the user actually wants.
 
 You receive recent tool calls, each with: the user's intent, the tool name, its connector, and whether it succeeded.
 
-Find RECURRING or HIGH-VALUE patterns where a rule would help. Example: users asking for "daily revenue" really want orders with status 2, 3 AND 4 (transmitted/open/invoiced), not only status 4 (invoiced).
+Look for RECURRING or HIGH-VALUE patterns in the intents where a standing rule would have produced the result the user actually asked for (e.g. a correction the user had to make).
 
 ${JSON_SHAPE}
 
 Each skill also has a "connector": "<connector name or null>". Rules:
 - Propose at most 6 skills. Prefer specific, actionable rules.
 - Only use connector names that appear in the input (or null).
-- If there is no useful pattern, return {"skills":[]}.`;
+- ${GROUNDING}`;
 
-const SERVER_PROMPT = `You configure a single MCP server that combines SEVERAL connectors into one assistant. Turn real user requests ("intents") into reusable cross-connector "skills" — rules that should apply to the WHOLE server, understanding how its connectors relate.
+const SERVER_PROMPT = `You configure a single MCP server that combines SEVERAL connectors into one assistant. Turn real user requests ("intents") into reusable cross-connector "skills" — rules that apply to the WHOLE server, understanding how its connectors relate.
 
 You receive: the server's connectors with their entities, and recent tool calls (intent, tool, connector, success).
 
-Find HIGH-VALUE rules that span or coordinate connectors, or encode domain conventions the user expects. Example: "daily revenue" means orders with status 2, 3 AND 4, not only 4 — and should be reconciled across the ERP and the shop connector.
+Look for HIGH-VALUE rules grounded in the intents that span or coordinate connectors, or encode a domain convention the user explicitly stated or corrected.
 
 ${JSON_SHAPE}
-Rules: propose at most 6 server-wide skills, specific and actionable. If nothing useful, return {"skills":[]}.`;
+Rules: at most 6 server-wide skills, specific and actionable. ${GROUNDING}`;
 
 /**
  * Turns captured user intents into reviewable skill suggestions via the LLM.
