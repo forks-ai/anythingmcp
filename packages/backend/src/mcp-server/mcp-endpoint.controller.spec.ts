@@ -38,11 +38,13 @@ describe('McpEndpointController — tenant isolation', () => {
     toolRegistry = { getAllTools: jest.fn().mockReturnValue([]) };
     toolExecutor = { executeTool: jest.fn() };
     rolesService = { getAllowedToolIds: jest.fn().mockResolvedValue(null) };
+    const kgService = { lookup: jest.fn().mockResolvedValue({}) };
     controller = new McpEndpointController(
       mcpServersService,
       toolRegistry,
       toolExecutor,
       rolesService,
+      kgService as any,
     );
   });
 

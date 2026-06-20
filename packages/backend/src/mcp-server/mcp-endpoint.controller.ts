@@ -21,6 +21,7 @@ import { ToolRegistry } from './tool-registry';
 import { DynamicMcpTools } from './dynamic-mcp-tools';
 import { RolesService } from '../roles/roles.service';
 import { registerDemoTools } from './mcp-demo.tools';
+import { KgService } from '../knowledge-graph/kg.service';
 
 /**
  * Per-server MCP endpoint controller.
@@ -43,6 +44,7 @@ export class McpEndpointController {
     private readonly toolRegistry: ToolRegistry,
     private readonly toolExecutor: DynamicMcpTools,
     private readonly rolesService: RolesService,
+    private readonly kgService: KgService,
   ) {}
 
   // ─── Public, anonymous, static demo MCP server ──────────────────────────
@@ -284,6 +286,33 @@ export class McpEndpointController {
         const result = await this.toolExecutor.executeTool(tool.name, args, invocationContext);
         return result;
       });
+    }
+
+    // 5b. Inject the org-level Knowledge Graph helper tool. Lets the agent ask
+    // "how do I obtain X / what relates to X" and chain tools across connectors.
+    // Defensive + flag-gated: never let it break the connector tools above.
+    if (
+      process.env.KG_MCP_TOOL !== 'off' &&
+      invocationContext.organizationId &&
+      !registeredNames.has('kg_how_to_obtain')
+    ) {
+      try {
+        const orgId = invocationContext.organizationId;
+        mcpServer.tool(
+          'kg_how_to_obtain',
+          'Knowledge graph for this workspace: given an entity or a parameter you need ' +
+            '(e.g. "customer_id", "order", "person"), returns which entities/tools produce ' +
+            'or relate to it across the connected systems, so you can chain tool calls. ' +
+            'Relationships are learned from this workspace\'s connectors and real usage.',
+          { query: z.string().describe('An entity or parameter name, e.g. "customer_id" or "deal".') },
+          async (args: { query: string }) => {
+            const result = await this.kgService.lookup(orgId, args.query);
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+          },
+        );
+      } catch (err: any) {
+        this.logger.warn(`Failed to register kg_how_to_obtain tool: ${err.message}`);
+      }
     }
 
     // 6. Create transport and handle the request

@@ -18,6 +18,7 @@ import { AuditModule } from './audit/audit.module';
 import { HealthModule } from './health/health.module';
 import { SettingsModule } from './settings/settings.module';
 import { RolesModule } from './roles/roles.module';
+import { KgModule } from './knowledge-graph/kg.module';
 import { McpServersModule } from './mcp-servers/mcp-servers.module';
 import { LicenseModule } from './license/license.module';
 import { PrismaModule } from './common/prisma.module';
@@ -132,6 +133,7 @@ if (useOAuth) {
     HealthModule,
     SettingsModule,
     RolesModule,
+    KgModule,
     McpServersModule,
     LicenseModule,
 

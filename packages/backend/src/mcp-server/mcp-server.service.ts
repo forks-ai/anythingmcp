@@ -10,6 +10,7 @@ import { ToolRegistry } from './tool-registry';
 import { DynamicMcpTools } from './dynamic-mcp-tools';
 import { RolesService } from '../roles/roles.service';
 import { McpServersService } from '../mcp-servers/mcp-servers.service';
+import { KgStaticService } from '../knowledge-graph/kg-static.service';
 
 @Injectable()
 export class McpServerService implements OnModuleInit {
@@ -25,6 +26,7 @@ export class McpServerService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly rolesService: RolesService,
     private readonly mcpServersService: McpServersService,
+    private readonly kgStatic: KgStaticService,
   ) {
     this.encryptionKey = getRequiredSecret(
       'ENCRYPTION_KEY',
@@ -167,6 +169,16 @@ export class McpServerService implements OnModuleInit {
     this.logger.log(
       `Reloaded tools for connector ${connectorId}. Total tools: ${this.toolRegistry.getToolCount()}`,
     );
+
+    // Keep the knowledge-graph static layer in sync with this connector's tool
+    // surface. Fire-and-forget: it must never block or fail the tool reload.
+    if (connector?.organizationId) {
+      this.kgStatic
+        .syncConnector(connectorId)
+        .catch((e) =>
+          this.logger.warn(`KG static sync failed for ${connectorId}: ${e.message}`),
+        );
+    }
   }
 
   /**

@@ -1,0 +1,253 @@
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../common/prisma.service';
+import { RedisService } from '../common/redis.service';
+import { RolesService } from '../roles/roles.service';
+import { KgStaticService } from './kg-static.service';
+import { KgObservationalService } from './kg-observational.service';
+
+@Injectable()
+export class KgService {
+  private readonly logger = new Logger(KgService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+    private readonly roles: RolesService,
+    private readonly staticSvc: KgStaticService,
+    private readonly observationalSvc: KgObservationalService,
+  ) {}
+
+  /**
+   * Connectors the user is allowed to see in the graph. ADMIN / unrestricted
+   * users see all of the org's connectors; a user with a restricted mcpRole
+   * sees only connectors that expose at least one tool they're permitted to use.
+   * Returns null = no restriction.
+   */
+  private async visibleConnectorIds(
+    organizationId: string,
+    userId: string,
+  ): Promise<string[] | null> {
+    const allowedToolIds = await this.roles.getAllowedToolIds(userId);
+    if (allowedToolIds === null) return null;
+    if (allowedToolIds.length === 0) return [];
+    const tools = await this.prisma.mcpTool.findMany({
+      where: { id: { in: allowedToolIds }, connector: { organizationId } },
+      select: { connectorId: true },
+      distinct: ['connectorId'],
+    });
+    return tools.map((t) => t.connectorId);
+  }
+
+  /** Full graph for an org, RBAC-filtered, ready for the UI. */
+  async getGraph(organizationId: string, userId: string) {
+    const visible = await this.visibleConnectorIds(organizationId, userId);
+
+    const nodes = await this.prisma.kgNode.findMany({
+      where: {
+        organizationId,
+        ...(visible ? { connectorId: { in: visible } } : {}),
+      },
+      select: {
+        id: true,
+        entity: true,
+        label: true,
+        connectorId: true,
+        fields: true,
+        toolNames: true,
+        source: true,
+        confidence: true,
+        observations: true,
+        connector: { select: { name: true } },
+      },
+      orderBy: { entity: 'asc' },
+    });
+
+    const nodeIds = nodes.map((n) => n.id);
+    const edges = nodeIds.length
+      ? await this.prisma.kgEdge.findMany({
+          where: {
+            organizationId,
+            status: { not: 'rejected' },
+            sourceNodeId: { in: nodeIds },
+            targetNodeId: { in: nodeIds },
+          },
+          select: {
+            id: true,
+            sourceNodeId: true,
+            targetNodeId: true,
+            kind: true,
+            matchKey: true,
+            source: true,
+            confidence: true,
+            observations: true,
+            isManual: true,
+            status: true,
+          },
+        })
+      : [];
+
+    const state = await this.prisma.kgConnectorState.aggregate({
+      where: { organizationId },
+      _max: { lastStaticAt: true, lastObservedAt: true },
+    });
+
+    return {
+      nodes: nodes.map((n) => ({
+        id: n.id,
+        entity: n.entity,
+        label: n.label,
+        connectorId: n.connectorId,
+        connectorName: n.connector?.name ?? null,
+        fields: n.fields,
+        toolNames: n.toolNames,
+        source: n.source,
+        confidence: n.confidence,
+        observations: n.observations,
+      })),
+      edges,
+      lastBuiltAt: state._max.lastStaticAt ?? state._max.lastObservedAt ?? null,
+    };
+  }
+
+  async stats(organizationId: string) {
+    const [nodes, edges, suggested] = await Promise.all([
+      this.prisma.kgNode.count({ where: { organizationId } }),
+      this.prisma.kgEdge.count({ where: { organizationId, status: { not: 'rejected' } } }),
+      this.prisma.kgEdge.count({ where: { organizationId, status: 'suggested' } }),
+    ]);
+    return { nodes, edges, suggested };
+  }
+
+  /** Rebuild the whole org graph (static + observational) under a per-org lock. */
+  async rebuild(organizationId: string) {
+    const lockKey = `kg_rebuild_lock:${organizationId}`;
+    const locked =
+      this.redis.isConnected && (await this.redis.incr(lockKey)) > 1;
+    if (locked) {
+      throw new ConflictException('A graph rebuild is already running for this workspace.');
+    }
+    if (this.redis.isConnected) await this.redis.expire(lockKey, 120);
+    try {
+      const staticResult = await this.staticSvc.syncOrganization(organizationId, { force: true });
+      const obs = await this.observationalSvc.ingestOrganization(organizationId);
+      return { ...staticResult, ...obs };
+    } finally {
+      if (this.redis.isConnected) await this.redis.del(lockKey);
+    }
+  }
+
+  async createManualEdge(
+    organizationId: string,
+    body: { sourceNodeId: string; targetNodeId: string; kind?: string },
+  ) {
+    if (!body.sourceNodeId || !body.targetNodeId || body.sourceNodeId === body.targetNodeId) {
+      throw new ForbiddenException('Invalid source/target.');
+    }
+    const count = await this.prisma.kgNode.count({
+      where: { organizationId, id: { in: [body.sourceNodeId, body.targetNodeId] } },
+    });
+    if (count !== 2) throw new NotFoundException('Node not found in this workspace.');
+
+    return this.prisma.kgEdge.upsert({
+      where: {
+        organizationId_sourceNodeId_targetNodeId_kind: {
+          organizationId,
+          sourceNodeId: body.sourceNodeId,
+          targetNodeId: body.targetNodeId,
+          kind: body.kind || 'same_identity',
+        },
+      },
+      create: {
+        organizationId,
+        sourceNodeId: body.sourceNodeId,
+        targetNodeId: body.targetNodeId,
+        kind: body.kind || 'same_identity',
+        source: 'MANUAL',
+        confidence: 1,
+        isManual: true,
+        status: 'active',
+      },
+      update: { source: 'MANUAL', isManual: true, status: 'active', confidence: 1 },
+    });
+  }
+
+  /** Confirm (active) or dismiss (rejected) an edge. */
+  async setEdgeStatus(organizationId: string, edgeId: string, status: 'active' | 'rejected') {
+    const edge = await this.prisma.kgEdge.findUnique({
+      where: { id: edgeId },
+      select: { organizationId: true },
+    });
+    if (!edge || edge.organizationId !== organizationId) {
+      throw new NotFoundException('Edge not found.');
+    }
+    return this.prisma.kgEdge.update({ where: { id: edgeId }, data: { status } });
+  }
+
+  /**
+   * Answer "how do I obtain / what relates to X" from the org graph — the
+   * payload behind the MCP-exposed system tool. X is an entity or a parameter
+   * name (e.g. "customer_id", "order").
+   */
+  async lookup(organizationId: string, query: string) {
+    const q = (query || '').toLowerCase().trim().replace(/\s+/g, '_');
+    if (!q) return { query, entities: [], howToObtain: [], relatedTo: [] };
+
+    const nodes = await this.prisma.kgNode.findMany({
+      where: { organizationId },
+      select: { id: true, entity: true, label: true, fields: true, toolNames: true },
+    });
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const label = (id: string) => byId.get(id)?.label ?? '?';
+    const tools = (id: string) => (byId.get(id)?.toolNames as string[] | undefined) ?? [];
+
+    const edges = await this.prisma.kgEdge.findMany({
+      where: { organizationId, status: 'active' },
+      select: { sourceNodeId: true, targetNodeId: true, kind: true, matchKey: true },
+    });
+
+    const matchedEntities = nodes
+      .filter(
+        (n) =>
+          n.entity === q ||
+          n.entity.includes(q) ||
+          (n.fields as Array<{ name: string }>).some((f) => f.name.toLowerCase() === q),
+      )
+      .map((n) => ({ entity: n.entity, label: n.label, tools: tools(n.id) }));
+
+    // Tools that PRODUCE the requested key/entity (edges whose match key is q,
+    // or that point at the requested entity).
+    const howToObtain = edges
+      .filter((e) => e.matchKey?.toLowerCase() === q || label(e.targetNodeId).toLowerCase() === q)
+      .map((e) => ({
+        field: e.matchKey ?? q,
+        fromEntity: label(e.sourceNodeId),
+        toEntity: label(e.targetNodeId),
+        kind: e.kind,
+        viaTools: tools(e.sourceNodeId).slice(0, 8),
+      }));
+
+    const relatedTo = edges
+      .filter((e) => matchedEntities.some((m) => m.label === label(e.sourceNodeId) || m.label === label(e.targetNodeId)))
+      .map((e) => ({ from: label(e.sourceNodeId), to: label(e.targetNodeId), kind: e.kind, matchKey: e.matchKey }));
+
+    return { query, entities: matchedEntities, howToObtain, relatedTo: relatedTo.slice(0, 25) };
+  }
+
+  async deleteEdge(organizationId: string, edgeId: string) {
+    const edge = await this.prisma.kgEdge.findUnique({
+      where: { id: edgeId },
+      select: { organizationId: true },
+    });
+    if (!edge || edge.organizationId !== organizationId) {
+      throw new NotFoundException('Edge not found.');
+    }
+    await this.prisma.kgEdge.delete({ where: { id: edgeId } });
+    return { ok: true };
+  }
+}
