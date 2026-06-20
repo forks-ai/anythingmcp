@@ -128,6 +128,7 @@ export class DynamicMcpTools {
       mcpServerId?: string;
       mcpServerName?: string;
       connectorIds?: string[];
+      intent?: string;
     },
   ): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> {
     // Check license before executing tool (cloud mode only)
@@ -245,6 +246,7 @@ export class DynamicMcpTools {
         organizationId: context?.organizationId,
         connectorId: tool.connectorId,
         usedProxy,
+        intent: context?.intent,
         input: params,
         output: result as Record<string, unknown>,
         status: 'SUCCESS',
@@ -283,6 +285,7 @@ export class DynamicMcpTools {
         organizationId: context?.organizationId,
         connectorId: tool.connectorId,
         usedProxy,
+        intent: context?.intent,
         input: params,
         status: 'ERROR',
         durationMs,

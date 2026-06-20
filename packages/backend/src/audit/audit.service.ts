@@ -27,6 +27,8 @@ export class AuditService {
     connectorId?: string;
     /** Whether the call was routed through the proxy/unblocker (metering). */
     usedProxy?: boolean;
+    /** Natural-language user intent that led to the call (opt-in capture). */
+    intent?: string;
     input: Record<string, unknown>;
     output?: Record<string, unknown>;
     status: 'SUCCESS' | 'ERROR' | 'TIMEOUT';
@@ -45,6 +47,7 @@ export class AuditService {
           organizationId: data.organizationId,
           connectorId: data.connectorId,
           usedProxy: data.usedProxy ?? false,
+          intent: data.intent,
           input: data.input as any,
           output: data.output as any,
           status: data.status as InvocationStatus,

@@ -256,6 +256,7 @@ export class McpEndpointController {
       mcpServerId: mcpServerConfig.id,
       mcpServerName: mcpServerConfig.name,
       connectorIds,
+      intent: undefined as string | undefined,
     };
 
     // Dedupe by tool name. A server can have two connectors that expose the
@@ -264,6 +265,13 @@ export class McpEndpointController {
     // the second registration, which previously 500'd the ENTIRE request and
     // took down every tool on the server. Register the first occurrence of
     // each name and skip the rest, so one duplicate can't break the endpoint.
+    // Optional: ask the calling agent to pass the user's originating request on
+    // every tool call, so we capture the intent/context behind it (used later to
+    // optimize the graph and suggest skills). Per-workspace switch, default off.
+    const captureIntent = invocationContext.organizationId
+      ? await this.kgService.captureIntentEnabled(invocationContext.organizationId)
+      : false;
+
     const registeredNames = new Set<string>();
     for (const tool of serverTools) {
       // Skip tools not allowed by role
@@ -281,9 +289,25 @@ export class McpEndpointController {
 
       const schema = this.stripEnvVarParams(tool.parameters, tool.connectorConfig.envVars);
       const zodShape = this.jsonSchemaToZodShape(schema);
+      if (captureIntent) {
+        zodShape._intent = z
+          .string()
+          .optional()
+          .describe(
+            "The user's natural-language request that led to this tool call (verbatim). " +
+              'Helps this workspace understand and improve its tooling. Optional but encouraged.',
+          );
+      }
 
       mcpServer.tool(tool.name, tool.description, zodShape, async (args: any) => {
-        const result = await this.toolExecutor.executeTool(tool.name, args, invocationContext);
+        let ctx = invocationContext;
+        let toolArgs = args;
+        if (captureIntent && args && typeof args === 'object') {
+          const { _intent, ...rest } = args;
+          toolArgs = rest;
+          if (_intent) ctx = { ...invocationContext, intent: String(_intent).slice(0, 2000) };
+        }
+        const result = await this.toolExecutor.executeTool(tool.name, toolArgs, ctx);
         return result;
       });
     }

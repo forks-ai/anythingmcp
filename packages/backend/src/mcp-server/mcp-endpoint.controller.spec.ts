@@ -41,6 +41,7 @@ describe('McpEndpointController — tenant isolation', () => {
     const kgService = {
       lookup: jest.fn().mockResolvedValue({}),
       isEnabled: jest.fn().mockResolvedValue(true),
+      captureIntentEnabled: jest.fn().mockResolvedValue(false),
     };
     controller = new McpEndpointController(
       mcpServersService,
