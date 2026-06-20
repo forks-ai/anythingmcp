@@ -81,6 +81,31 @@ export function extractIdentifiers(input: unknown): IdentifierOccurrence[] {
   return out;
 }
 
+/**
+ * Collect all leaf field NAMES from a JSON payload (deduped, lowercased).
+ * Used to mine FK-style relationships from a tool's response shape even when
+ * no value coincidence is observed (e.g. a get_order response carrying a
+ * `customer_id` field implies Order -> Customer).
+ */
+export function extractFieldNames(input: unknown): string[] {
+  const out = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (node === null || node === undefined) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (typeof node === 'object') {
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        out.add(k.toLowerCase());
+        walk(v);
+      }
+    }
+  };
+  walk(input);
+  return [...out];
+}
+
 /** Stable per-organization key derived from a server secret. */
 function orgKey(orgId: string): Buffer {
   const secret =

@@ -51,6 +51,9 @@ export interface StaticGraph {
 /** Minimal shape the extractor needs from a tool definition. */
 export interface ToolLike {
   name: string;
+  /** Free-text description — often lists the fields a call RETURNS, which the
+   *  adapters don't declare structurally. Mined for extra FK-style edges. */
+  description?: string;
   parameters?: {
     properties?: Record<string, { type?: string } | undefined>;
   };

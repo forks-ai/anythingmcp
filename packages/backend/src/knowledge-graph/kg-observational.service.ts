@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { extractEntity } from './static/entity-extraction';
-import { deriveSlug } from './kg-static.service';
-import { extractIdentifiers, hashValue } from './identifier';
+import { fkCandidate } from './static/fk-inference';
+import { deriveSlug, KgStaticService } from './kg-static.service';
+import { extractFieldNames, extractIdentifiers, hashValue } from './identifier';
 
 const MAX_INVOCATIONS_PER_RUN = 2000;
 const MAX_PAIRS_PER_HASH = 6; // cap fan-out per shared value
@@ -23,11 +24,17 @@ const MAX_PAIRS_PER_HASH = 6; // cap fan-out per shared value
 export class KgObservationalService {
   private readonly logger = new Logger(KgObservationalService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly kgStatic: KgStaticService,
+  ) {}
 
   async ingestOrganization(
     organizationId: string,
   ): Promise<{ invocations: number; edges: number }> {
+    if (!(await this.kgStatic.isEnabled(organizationId))) {
+      return { invocations: 0, edges: 0 };
+    }
     // Per-connector slug + watermark.
     const connectors = await this.prisma.connector.findMany({
       where: { organizationId },
@@ -64,6 +71,21 @@ export class KgObservationalService {
       take: MAX_INVOCATIONS_PER_RUN,
     });
 
+    // Existing entities per connector, so we can link a response field name to a
+    // known entity (FK rule applied to the response shape, not just values).
+    const connectorEntities = new Map<string, Set<string>>();
+    for (const r of await this.prisma.kgNode.findMany({
+      where: { organizationId },
+      select: { connectorId: true, entity: true },
+    })) {
+      let s = connectorEntities.get(r.connectorId);
+      if (!s) {
+        s = new Set();
+        connectorEntities.set(r.connectorId, s);
+      }
+      s.add(r.entity);
+    }
+
     const newHashes = new Set<string>();
     const valueRows: Array<{
       organizationId: string;
@@ -73,6 +95,11 @@ export class KgObservationalService {
       field: string;
       direction: string;
     }> = [];
+    // references edges mined from response field names: key -> details.
+    const refBumps = new Map<
+      string,
+      { connectorId: string; from: string; to: string; field: string }
+    >();
     const maxTsByConnector = new Map<string, Date>();
 
     for (const inv of invocations) {
@@ -106,15 +133,46 @@ export class KgObservationalService {
       };
       collect(inv.input, 'input');
       collect(inv.output, 'output');
+
+      // Mine the response SHAPE: a field like `customer_id` in the output means
+      // this entity references Customer, even with no value coincidence.
+      const knownEntities = connectorEntities.get(connectorId);
+      if (knownEntities) {
+        for (const field of extractFieldNames(inv.output)) {
+          const target = fkCandidate(field);
+          if (target && target !== ent.entity && knownEntities.has(target)) {
+            const k = `${connectorId}|${ent.entity}|${target}`;
+            if (!refBumps.has(k)) {
+              refBumps.set(k, { connectorId, from: ent.entity, to: target, field });
+            }
+          }
+        }
+      }
     }
 
     if (valueRows.length) {
       await this.prisma.kgValueSeen.createMany({ data: valueRows });
     }
 
-    const edges = newHashes.size
+    let edges = newHashes.size
       ? await this.correlate(organizationId, [...newHashes])
       : 0;
+
+    // Apply references edges mined from response shapes.
+    const refCache = new Map<string, string>();
+    for (const b of refBumps.values()) {
+      const src = await this.nodeId(refCache, organizationId, b.connectorId, b.from);
+      const tgt = await this.nodeId(refCache, organizationId, b.connectorId, b.to);
+      if (src && tgt && src !== tgt) {
+        await this.bumpEdge(organizationId, src, tgt, 'references', {
+          matchKey: b.field,
+          base: 0.6,
+          cap: 0.9,
+          status: 'active',
+        });
+        edges++;
+      }
+    }
 
     // Advance per-connector watermark.
     for (const [connectorId, ts] of maxTsByConnector) {

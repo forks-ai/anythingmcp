@@ -14,13 +14,16 @@
 import { singularize } from './entity-extraction';
 
 /** Field nouns too generic to be a join key — never produce an edge. */
+// Generic field nouns that are never a join key. NOTE: words that double as
+// real domain entities (order, group, account, ...) are deliberately NOT here —
+// `order_id`/`group_id` are legitimate FKs. Only truly non-entity tokens belong.
 const GENERIC = new Set([
   'id', 'name', 'email', 'status', 'type', 'description', 'url', 'page',
-  'limit', 'cursor', 'query', 'offset', 'sort', 'order', 'search', 'term',
+  'limit', 'cursor', 'query', 'offset', 'sort', 'search', 'term',
   'filter', 'date', 'time', 'created', 'updated', 'count', 'total', 'data',
   'value', 'title', 'body', 'text', 'message', 'note', 'label', 'tag',
   'color', 'locale', 'currency', 'amount', 'price', 'quantity', 'key',
-  'token', 'code', 'parent', 'external', 'reference', 'group',
+  'token', 'code', 'parent', 'external', 'reference',
 ]);
 
 /** Map a referenced noun to its canonical entity name when they differ. */
@@ -52,4 +55,20 @@ export function fkCandidate(field: string): string | null {
   noun = singularize(noun.replace(/_/g, '').toLowerCase());
   if (!noun || GENERIC.has(noun)) return null;
   return ALIASES[noun] ?? noun;
+}
+
+/**
+ * Mine FK-style tokens out of free text (a tool description), e.g. a sentence
+ * "Returns the deal id, ..., owner_id, person_id, org_id" yields person/org.
+ * Returns the set of canonical entity nouns referenced.
+ */
+export function fkCandidatesFromText(text: string): string[] {
+  if (!text) return [];
+  const tokens = text.match(/[A-Za-z]+_id\b|\bid[A-Z][A-Za-z]+|\b[a-z]+Id\b/g) ?? [];
+  const out = new Set<string>();
+  for (const t of tokens) {
+    const c = fkCandidate(t);
+    if (c) out.add(c);
+  }
+  return [...out];
 }

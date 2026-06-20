@@ -22,6 +22,25 @@ export class KgStaticService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Whether the knowledge graph is enabled for this workspace (default true). */
+  async isEnabled(organizationId: string): Promise<boolean> {
+    const row = await this.prisma.orgSettings.findUnique({
+      where: { organizationId_key: { organizationId, key: 'kg_enabled' } },
+      select: { value: true },
+    });
+    return row?.value !== 'false';
+  }
+
+  /** Toggle the knowledge graph for a workspace. */
+  async setEnabled(organizationId: string, enabled: boolean): Promise<void> {
+    const value = enabled ? 'true' : 'false';
+    await this.prisma.orgSettings.upsert({
+      where: { organizationId_key: { organizationId, key: 'kg_enabled' } },
+      create: { organizationId, key: 'kg_enabled', value },
+      update: { value },
+    });
+  }
+
   /** Build + persist the static graph for one connector. */
   async syncConnector(
     connectorId: string,
@@ -32,14 +51,18 @@ export class KgStaticService {
       select: {
         id: true,
         organizationId: true,
-        tools: { select: { name: true, parameters: true } },
+        tools: { select: { name: true, description: true, parameters: true } },
       },
     });
     if (!connector) return { nodes: 0, edges: 0, skipped: true };
 
     const organizationId = connector.organizationId;
+    if (!(await this.isEnabled(organizationId))) {
+      return { nodes: 0, edges: 0, skipped: true };
+    }
     const tools: ToolLike[] = connector.tools.map((t) => ({
       name: t.name,
+      description: t.description,
       parameters: t.parameters as ToolLike['parameters'],
     }));
     const slug = deriveSlug(connector.tools.map((t) => t.name));
@@ -78,6 +101,9 @@ export class KgStaticService {
     organizationId: string,
     opts?: { force?: boolean },
   ): Promise<{ connectors: number; nodes: number; edges: number }> {
+    if (!(await this.isEnabled(organizationId))) {
+      return { connectors: 0, nodes: 0, edges: 0 };
+    }
     const connectors = await this.prisma.connector.findMany({
       where: { organizationId },
       select: { id: true },

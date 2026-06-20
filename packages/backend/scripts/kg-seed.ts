@@ -109,6 +109,10 @@ async function main() {
   // WooCommerce: same customer email appears here -> same_identity (person ~ customer).
   await log('' + woo.id, 'woocommerce_create_customer', { email: email1, first_name: 'Jane' }, { id: 55012, email: email1 });
   await log('' + woo.id, 'woocommerce_list_orders', { customer: '55012' }, { items: [{ id: 88003, customer_id: 55012 }] });
+  // Response-shape mining: get_order RESPONSE carries customer_id -> Order references Customer
+  // even with no value coincidence; create_refund RESPONSE carries order_id -> Refund references Order.
+  await log('' + woo.id, 'woocommerce_get_order', { id: 88003 }, { id: 88003, customer_id: 55012, status: 'completed', total: '120.00' });
+  await log('' + woo.id, 'woocommerce_create_refund', { order_id: 88003, amount: '10.00' }, { id: 90001, order_id: 88003, amount: '10.00' });
 
   console.log('Seed complete:');
   console.log('  org:', org.id);

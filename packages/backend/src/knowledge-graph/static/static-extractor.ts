@@ -6,12 +6,15 @@
  */
 
 import { extractEntity, singularize } from './entity-extraction';
-import { fkCandidate } from './fk-inference';
+import { fkCandidate, fkCandidatesFromText } from './fk-inference';
 import { KgEdgeDraft, KgNodeDraft, StaticGraph, ToolLike } from './types';
 
 const ENTITY_CONFIDENCE = 0.5;
 const REFERENCES_CONFIDENCE = 0.5;
 const PARENT_CHILD_CONFIDENCE = 0.6;
+// FK references guessed from description prose are a weaker signal than a real
+// parameter, so they rank below the min-confidence filter's mid-point.
+const DESCRIPTION_REFERENCES_CONFIDENCE = 0.35;
 
 export function buildStaticGraph(slug: string, tools: ToolLike[]): StaticGraph {
   const nodes = new Map<string, KgNodeDraft>();
@@ -50,6 +53,7 @@ export function buildStaticGraph(slug: string, tools: ToolLike[]): StaticGraph {
     target: string,
     kind: KgEdgeDraft['kind'],
     matchKey?: string,
+    confidence?: number,
   ): void => {
     if (source === target) return;
     const key = `${source}|${target}|${kind}`;
@@ -60,7 +64,9 @@ export function buildStaticGraph(slug: string, tools: ToolLike[]): StaticGraph {
       kind,
       matchKey,
       source: 'static',
-      confidence: kind === 'references' ? REFERENCES_CONFIDENCE : PARENT_CHILD_CONFIDENCE,
+      confidence:
+        confidence ??
+        (kind === 'references' ? REFERENCES_CONFIDENCE : PARENT_CHILD_CONFIDENCE),
     });
   };
 
@@ -73,6 +79,19 @@ export function buildStaticGraph(slug: string, tools: ToolLike[]): StaticGraph {
       const target = fkCandidate(fname);
       if (target && entitySet.has(target)) {
         addEdge(ent.entity, target, 'references', fname);
+      }
+    }
+  }
+
+  // Pass 2a-bis — weaker references mined from the description prose (returned
+  // fields the adapters don't declare structurally). Run after params so a real
+  // parameter edge always wins the dedupe.
+  for (const tool of tools) {
+    const ent = extractEntity(tool.name, slug);
+    if (!ent) continue;
+    for (const target of fkCandidatesFromText(tool.description ?? '')) {
+      if (entitySet.has(target)) {
+        addEdge(ent.entity, target, 'references', undefined, DESCRIPTION_REFERENCES_CONFIDENCE);
       }
     }
   }

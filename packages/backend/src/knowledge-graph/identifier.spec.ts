@@ -1,4 +1,4 @@
-import { extractIdentifiers, hashValue, isIdentifierLike } from './identifier';
+import { extractFieldNames, extractIdentifiers, hashValue, isIdentifierLike } from './identifier';
 
 describe('isIdentifierLike', () => {
   it.each([
@@ -33,6 +33,17 @@ describe('extractIdentifiers', () => {
     });
     const fields = got.map((g) => g.field).sort();
     expect(fields).toEqual(['email', 'id', 'person_id']);
+  });
+});
+
+describe('extractFieldNames', () => {
+  it('collects all leaf field names regardless of value (for response-shape mining)', () => {
+    const got = extractFieldNames({
+      id: 70011,
+      customer_id: 3, // small value, but the NAME is what matters here
+      line_items: [{ product_id: 9, qty: 2 }],
+    }).sort();
+    expect(got).toEqual(['customer_id', 'id', 'line_items', 'product_id', 'qty']);
   });
 });
 

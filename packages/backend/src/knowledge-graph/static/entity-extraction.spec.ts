@@ -1,5 +1,5 @@
 import { extractEntity, singularize } from './entity-extraction';
-import { fkCandidate } from './fk-inference';
+import { fkCandidate, fkCandidatesFromText } from './fk-inference';
 
 describe('singularize', () => {
   it.each([
@@ -72,4 +72,19 @@ describe('fkCandidate', () => {
       expect(fkCandidate(field)).toBeNull();
     },
   );
+});
+
+describe('fkCandidatesFromText (description mining)', () => {
+  it('extracts FK nouns from a returns-sentence', () => {
+    const got = fkCandidatesFromText(
+      'Returns the deal id, title, value, person_id, org_id and update_time.',
+    );
+    expect(got).toEqual(expect.arrayContaining(['person', 'organization']));
+    // "deal id" (space, not deal_id) is not an FK token.
+    expect(got).not.toContain('deal');
+  });
+
+  it('returns nothing for prose without FK tokens', () => {
+    expect(fkCandidatesFromText('Lists all boards for the current user.')).toEqual([]);
+  });
 });
