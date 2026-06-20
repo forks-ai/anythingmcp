@@ -323,10 +323,18 @@ export interface KgEdge {
 
 export const knowledgeGraph = {
   get: (token: string) =>
-    request<{ nodes: KgNode[]; edges: KgEdge[]; lastBuiltAt: string | null }>(
+    request<{ nodes: KgNode[]; edges: KgEdge[]; lastBuiltAt: string | null; enabled: boolean }>(
       '/api/knowledge-graph',
       { token },
     ),
+  getSettings: (token: string) =>
+    request<{ enabled: boolean }>('/api/knowledge-graph/settings', { token }),
+  setEnabled: (token: string, enabled: boolean) =>
+    request<{ enabled: boolean }>('/api/knowledge-graph/settings', {
+      token,
+      method: 'PUT',
+      body: { enabled },
+    }),
   stats: (token: string) =>
     request<{ nodes: number; edges: number; suggested: number }>(
       '/api/knowledge-graph/stats',

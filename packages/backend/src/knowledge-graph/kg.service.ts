@@ -44,8 +44,24 @@ export class KgService {
     return tools.map((t) => t.connectorId);
   }
 
+  isEnabled(organizationId: string): Promise<boolean> {
+    return this.staticSvc.isEnabled(organizationId);
+  }
+
+  async getSettings(organizationId: string) {
+    return { enabled: await this.staticSvc.isEnabled(organizationId) };
+  }
+
+  async setEnabled(organizationId: string, enabled: boolean) {
+    await this.staticSvc.setEnabled(organizationId, enabled);
+    return { enabled };
+  }
+
   /** Full graph for an org, RBAC-filtered, ready for the UI. */
   async getGraph(organizationId: string, userId: string) {
+    if (!(await this.staticSvc.isEnabled(organizationId))) {
+      return { nodes: [], edges: [], lastBuiltAt: null, enabled: false };
+    }
     const visible = await this.visibleConnectorIds(organizationId, userId);
 
     const nodes = await this.prisma.kgNode.findMany({
@@ -112,6 +128,7 @@ export class KgService {
       })),
       edges,
       lastBuiltAt: state._max.lastStaticAt ?? state._max.lastObservedAt ?? null,
+      enabled: true,
     };
   }
 
@@ -126,6 +143,9 @@ export class KgService {
 
   /** Rebuild the whole org graph (static + observational) under a per-org lock. */
   async rebuild(organizationId: string) {
+    if (!(await this.staticSvc.isEnabled(organizationId))) {
+      throw new ConflictException('The knowledge graph is disabled for this workspace.');
+    }
     const lockKey = `kg_rebuild_lock:${organizationId}`;
     const locked =
       this.redis.isConnected && (await this.redis.incr(lockKey)) > 1;

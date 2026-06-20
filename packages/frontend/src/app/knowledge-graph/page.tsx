@@ -20,6 +20,7 @@ export default function KnowledgeGraphPage() {
   const [nodes, setNodes] = useState<KgNode[]>([]);
   const [edges, setEdges] = useState<KgEdge[]>([]);
   const [lastBuiltAt, setLastBuiltAt] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [rebuilding, setRebuilding] = useState(false);
   const [status, setStatus] = useState<string>('');
@@ -42,6 +43,7 @@ export default function KnowledgeGraphPage() {
         setNodes(g.nodes);
         setEdges(g.edges);
         setLastBuiltAt(g.lastBuiltAt);
+        setEnabled(g.enabled);
       })
       .catch((e) => setStatus(e.message || 'Failed to load graph'))
       .finally(() => setLoading(false));
@@ -116,7 +118,7 @@ export default function KnowledgeGraphPage() {
       <NavBar
         title="Knowledge Graph"
         actions={
-          isAdmin && (
+          isAdmin && enabled && (
             <button
               onClick={rebuild}
               disabled={rebuilding}
@@ -183,6 +185,13 @@ export default function KnowledgeGraphPage() {
             {loading ? (
               <div className="h-full flex items-center justify-center text-[var(--muted-foreground)]">
                 Loading graph…
+              </div>
+            ) : !enabled ? (
+              <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
+                <p className="font-medium">The Knowledge Graph is disabled for this workspace.</p>
+                <p className="text-[var(--muted-foreground)] text-sm">
+                  An admin can enable it in Settings → Organization → Features.
+                </p>
               </div>
             ) : nodes.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-6">

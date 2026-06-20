@@ -294,7 +294,8 @@ export class McpEndpointController {
     if (
       process.env.KG_MCP_TOOL !== 'off' &&
       invocationContext.organizationId &&
-      !registeredNames.has('kg_how_to_obtain')
+      !registeredNames.has('kg_how_to_obtain') &&
+      (await this.kgService.isEnabled(invocationContext.organizationId))
     ) {
       try {
         const orgId = invocationContext.organizationId;

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { organizations } from '@/lib/api';
+import { organizations, knowledgeGraph } from '@/lib/api';
 import * as Dialog from '@radix-ui/react-dialog';
 
 export default function OrganizationSettingsPage() {
@@ -24,6 +24,10 @@ export default function OrganizationSettingsPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Knowledge graph feature toggle
+  const [kgEnabled, setKgEnabled] = useState<boolean | null>(null);
+  const [kgSaving, setKgSaving] = useState(false);
+
   const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
@@ -33,7 +37,21 @@ export default function OrganizationSettingsPage() {
       setOrgId(org.id);
       setCreatedAt(org.createdAt);
     }).catch(() => {});
+    knowledgeGraph.getSettings(token).then((s) => setKgEnabled(s.enabled)).catch(() => {});
   }, [token]);
+
+  const toggleKg = async () => {
+    if (!token || kgEnabled === null) return;
+    setKgSaving(true);
+    try {
+      const r = await knowledgeGraph.setEnabled(token, !kgEnabled);
+      setKgEnabled(r.enabled);
+    } catch {
+      /* keep previous state */
+    } finally {
+      setKgSaving(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!token || !name.trim()) return;
@@ -159,6 +177,37 @@ export default function OrganizationSettingsPage() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* Features */}
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-5">
+        <h3 className="text-sm font-semibold">Features</h3>
+        <div className="flex items-start justify-between gap-4 mt-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Knowledge Graph</p>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+              Auto-discovers relationships between your connectors&apos; entities (from tool
+              definitions and real usage) and exposes them to agents. Disabling it stops graph
+              building, hides the page, and removes the MCP helper tool for this workspace.
+            </p>
+          </div>
+          <button
+            onClick={toggleKg}
+            disabled={!isAdmin || kgSaving || kgEnabled === null}
+            role="switch"
+            aria-checked={!!kgEnabled}
+            title={isAdmin ? '' : 'Only admins can change this'}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+              kgEnabled ? 'bg-[var(--brand)]' : 'bg-[var(--border)]'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                kgEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
       </div>
 
       {/* Danger Zone — ADMIN only */}

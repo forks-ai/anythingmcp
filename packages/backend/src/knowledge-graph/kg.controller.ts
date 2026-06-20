@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -33,6 +34,20 @@ export class KgController {
   @ApiOperation({ summary: 'Graph counts (nodes, edges, suggested)' })
   async stats(@Req() req: any) {
     return this.kg.stats(req.user.organizationId);
+  }
+
+  @Get('settings')
+  @Roles('ADMIN', 'EDITOR')
+  @ApiOperation({ summary: 'Whether the knowledge graph is enabled for this workspace' })
+  async getSettings(@Req() req: any) {
+    return this.kg.getSettings(req.user.organizationId);
+  }
+
+  @Put('settings')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Enable/disable the knowledge graph for this workspace' })
+  async setSettings(@Req() req: any, @Body() body: { enabled: boolean }) {
+    return this.kg.setEnabled(req.user.organizationId, !!body.enabled);
   }
 
   @Post('rebuild')
