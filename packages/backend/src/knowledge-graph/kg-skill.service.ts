@@ -119,7 +119,7 @@ export class KgSkillService {
     const connectorIds = links.map((l) => l.connectorId);
 
     const nodes = await this.prisma.kgNode.findMany({
-      where: { organizationId, connectorId: { in: connectorIds.length ? connectorIds : ['\0'] } },
+      where: { organizationId, connectorId: { in: connectorIds.length ? connectorIds : ['__none__'] } },
       select: { entity: true, connector: { select: { name: true } } },
     });
     const connectorsContext = links.map((l) => ({
@@ -206,7 +206,7 @@ export class KgSkillService {
         status: 'applied',
         OR: [
           { mcpServerId: serverId },
-          { connectorId: { in: connectorIds.length ? connectorIds : ['\0'] } },
+          { connectorId: { in: connectorIds.length ? connectorIds : ['__none__'] } },
         ],
       },
       select: { title: true, whenToUse: true, instruction: true },

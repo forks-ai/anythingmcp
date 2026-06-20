@@ -182,7 +182,7 @@ export class KgStaticService {
           organizationId,
           connectorId,
           source: 'STATIC',
-          entity: { notIn: keepEntities.length ? keepEntities : ['\0'] },
+          entity: { notIn: keepEntities.length ? keepEntities : ['__none__'] },
         },
       });
 
@@ -244,7 +244,7 @@ export class KgStaticService {
           organizationId,
           source: 'STATIC',
           sourceNode: { connectorId },
-          id: { notIn: keptEdgeIds.length ? keptEdgeIds : ['\0'] },
+          id: { notIn: keptEdgeIds.length ? keptEdgeIds : ['__none__'] },
         },
       });
     });
