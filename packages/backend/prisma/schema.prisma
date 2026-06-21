@@ -654,6 +654,7 @@ model KgNode {
 
   entity       String // normalized singular noun, e.g. "deal"
   label        String
+  description  String?  @db.Text // human-curated note about the entity; served to AI clients
   fields       Json     @default("[]") // [{name,type}] — input parameter surface
   outputFields Json     @default("[]") @map("output_fields") // string[] — field names this entity's tools RETURN (from outputSchema)
   toolNames    Json     @default("[]") @map("tool_names") // string[] — tools that touch this entity

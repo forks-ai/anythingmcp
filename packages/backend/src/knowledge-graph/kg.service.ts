@@ -155,6 +155,7 @@ export class KgService {
         id: true,
         entity: true,
         label: true,
+        description: true,
         connectorId: true,
         fields: true,
         toolNames: true,
@@ -201,6 +202,7 @@ export class KgService {
         id: n.id,
         entity: n.entity,
         label: n.label,
+        description: n.description,
         connectorId: n.connectorId,
         connectorName: n.connector?.name ?? null,
         fields: n.fields,
@@ -247,7 +249,7 @@ export class KgService {
 
   async createManualEdge(
     organizationId: string,
-    body: { sourceNodeId: string; targetNodeId: string; kind?: string },
+    body: { sourceNodeId: string; targetNodeId: string; kind?: string; note?: string },
   ) {
     if (!body.sourceNodeId || !body.targetNodeId || body.sourceNodeId === body.targetNodeId) {
       throw new ForbiddenException('Invalid source/target.');
@@ -257,6 +259,7 @@ export class KgService {
     });
     if (count !== 2) throw new NotFoundException('Node not found in this workspace.');
 
+    const note = typeof body.note === 'string' ? body.note.slice(0, 1000) : undefined;
     return this.prisma.kgEdge.upsert({
       where: {
         organizationId_sourceNodeId_targetNodeId_kind: {
@@ -275,44 +278,148 @@ export class KgService {
         confidence: 1,
         isManual: true,
         status: 'active',
+        note,
       },
-      update: { source: 'MANUAL', isManual: true, status: 'active', confidence: 1 },
+      update: {
+        source: 'MANUAL',
+        isManual: true,
+        status: 'active',
+        confidence: 1,
+        ...(note !== undefined ? { note } : {}),
+      },
     });
   }
 
-  /** Confirm (active) or dismiss (rejected) an edge. */
-  async setEdgeStatus(organizationId: string, edgeId: string, status: 'active' | 'rejected') {
+  /**
+   * Edit an edge: confirm/reject (status), retype (kind), or add a human
+   * description (note) that the MCP-served graph then exposes to AI clients.
+   * Editing marks the edge MANUAL so later rebuilds never silently overwrite it.
+   */
+  async updateEdge(
+    organizationId: string,
+    edgeId: string,
+    body: {
+      status?: 'active' | 'rejected' | 'suggested';
+      kind?: string;
+      note?: string | null;
+      matchKey?: string | null;
+    },
+  ) {
     const edge = await this.prisma.kgEdge.findUnique({
       where: { id: edgeId },
-      select: { organizationId: true },
+      select: { organizationId: true, kind: true, sourceNodeId: true, targetNodeId: true },
     });
     if (!edge || edge.organizationId !== organizationId) {
       throw new NotFoundException('Edge not found.');
     }
-    return this.prisma.kgEdge.update({ where: { id: edgeId }, data: { status } });
+
+    // Retyping changes the (org, source, target, kind) identity — guard the
+    // unique constraint so a clash surfaces as a clear 409 rather than a 500.
+    if (body.kind && body.kind !== edge.kind) {
+      const clash = await this.prisma.kgEdge.findUnique({
+        where: {
+          organizationId_sourceNodeId_targetNodeId_kind: {
+            organizationId,
+            sourceNodeId: edge.sourceNodeId,
+            targetNodeId: edge.targetNodeId,
+            kind: body.kind,
+          },
+        },
+        select: { id: true },
+      });
+      if (clash && clash.id !== edgeId) {
+        throw new ConflictException('An edge of that kind already exists between these entities.');
+      }
+    }
+
+    const data: Record<string, unknown> = {};
+    if (body.status) data.status = body.status;
+    if (body.kind) data.kind = body.kind;
+    if (body.note !== undefined) {
+      data.note = body.note === null ? null : String(body.note).slice(0, 1000);
+      data.isManual = true; // a human curated the rationale
+    }
+    if (body.matchKey !== undefined) data.matchKey = body.matchKey;
+    return this.prisma.kgEdge.update({ where: { id: edgeId }, data });
+  }
+
+  /** Backwards-compatible alias used by older callers/tests. */
+  setEdgeStatus(organizationId: string, edgeId: string, status: 'active' | 'rejected') {
+    return this.updateEdge(organizationId, edgeId, { status });
+  }
+
+  /** Edit a node's human-facing label and/or description (served to AI clients). */
+  async updateNode(
+    organizationId: string,
+    nodeId: string,
+    body: { label?: string; description?: string | null },
+  ) {
+    const node = await this.prisma.kgNode.findUnique({
+      where: { id: nodeId },
+      select: { organizationId: true },
+    });
+    if (!node || node.organizationId !== organizationId) {
+      throw new NotFoundException('Node not found.');
+    }
+    const data: Record<string, unknown> = {};
+    if (typeof body.label === 'string' && body.label.trim()) {
+      data.label = body.label.trim().slice(0, 200);
+    }
+    if (body.description !== undefined) {
+      data.description =
+        body.description === null ? null : String(body.description).slice(0, 2000);
+    }
+    return this.prisma.kgNode.update({ where: { id: nodeId }, data });
   }
 
   /**
-   * Answer "how do I obtain / what relates to X" from the org graph — the
-   * payload behind the MCP-exposed system tool. X is an entity or a parameter
-   * name (e.g. "customer_id", "order").
+   * Answer "how do I obtain / what relates to X" — the payload behind the
+   * MCP-exposed system tool. X is an entity or a parameter name (e.g.
+   * "customer_id", "order").
+   *
+   * When `opts.connectorIds` is given (the per-server MCP path), the graph is
+   * scoped to ONLY those connectors so an AI client sees its own server's
+   * entities, never the whole org. Human descriptions on nodes/edges and the
+   * org's applied skills are included so the client can act on curated context.
    */
-  async lookup(organizationId: string, query: string) {
+  async lookup(
+    organizationId: string,
+    query: string,
+    opts?: { connectorIds?: string[]; mcpServerId?: string },
+  ) {
+    const scope = opts?.connectorIds
+      ? { connectorId: { in: opts.connectorIds.length ? opts.connectorIds : ['__none__'] } }
+      : {};
+
+    const skills = await this.scopedSkills(organizationId, opts);
     const q = (query || '').toLowerCase().trim().replace(/\s+/g, '_');
-    if (!q) return { query, entities: [], howToObtain: [], relatedTo: [] };
+    if (!q) return { query, entities: [], howToObtain: [], relatedTo: [], skills };
 
     const nodes = await this.prisma.kgNode.findMany({
-      where: { organizationId },
-      select: { id: true, entity: true, label: true, fields: true, toolNames: true },
+      where: { organizationId, ...scope },
+      select: {
+        id: true,
+        entity: true,
+        label: true,
+        description: true,
+        fields: true,
+        toolNames: true,
+      },
     });
     const byId = new Map(nodes.map((n) => [n.id, n]));
+    const nodeIds = new Set(nodes.map((n) => n.id));
     const label = (id: string) => byId.get(id)?.label ?? '?';
     const tools = (id: string) => (byId.get(id)?.toolNames as string[] | undefined) ?? [];
 
-    const edges = await this.prisma.kgEdge.findMany({
+    // Only edges whose BOTH endpoints are in scope (so cross-server entities
+    // never leak through a shared org graph).
+    const allEdges = await this.prisma.kgEdge.findMany({
       where: { organizationId, status: 'active' },
-      select: { sourceNodeId: true, targetNodeId: true, kind: true, matchKey: true },
+      select: { sourceNodeId: true, targetNodeId: true, kind: true, matchKey: true, note: true },
     });
+    const edges = allEdges.filter(
+      (e) => nodeIds.has(e.sourceNodeId) && nodeIds.has(e.targetNodeId),
+    );
 
     const matchedEntities = nodes
       .filter(
@@ -321,7 +428,12 @@ export class KgService {
           n.entity.includes(q) ||
           (n.fields as Array<{ name: string }>).some((f) => f.name.toLowerCase() === q),
       )
-      .map((n) => ({ entity: n.entity, label: n.label, tools: tools(n.id) }));
+      .map((n) => ({
+        entity: n.entity,
+        label: n.label,
+        ...(n.description ? { description: n.description } : {}),
+        tools: tools(n.id),
+      }));
 
     // Tools that PRODUCE the requested key/entity (edges whose match key is q,
     // or that point at the requested entity).
@@ -332,14 +444,41 @@ export class KgService {
         fromEntity: label(e.sourceNodeId),
         toEntity: label(e.targetNodeId),
         kind: e.kind,
+        ...(e.note ? { description: e.note } : {}),
         viaTools: tools(e.sourceNodeId).slice(0, 8),
       }));
 
     const relatedTo = edges
       .filter((e) => matchedEntities.some((m) => m.label === label(e.sourceNodeId) || m.label === label(e.targetNodeId)))
-      .map((e) => ({ from: label(e.sourceNodeId), to: label(e.targetNodeId), kind: e.kind, matchKey: e.matchKey }));
+      .map((e) => ({
+        from: label(e.sourceNodeId),
+        to: label(e.targetNodeId),
+        kind: e.kind,
+        matchKey: e.matchKey,
+        ...(e.note ? { description: e.note } : {}),
+      }));
 
-    return { query, entities: matchedEntities, howToObtain, relatedTo: relatedTo.slice(0, 25) };
+    return { query, entities: matchedEntities, howToObtain, relatedTo: relatedTo.slice(0, 25), skills };
+  }
+
+  /** Applied skills for the scope (server-wide skills + assigned connectors'). */
+  private async scopedSkills(
+    organizationId: string,
+    opts?: { connectorIds?: string[]; mcpServerId?: string },
+  ) {
+    const or: any[] = [];
+    if (opts?.mcpServerId) or.push({ mcpServerId: opts.mcpServerId });
+    if (opts?.connectorIds?.length) or.push({ connectorId: { in: opts.connectorIds } });
+    const rows = await this.prisma.kgSkillSuggestion.findMany({
+      where: {
+        organizationId,
+        status: 'applied',
+        ...(or.length ? { OR: or } : {}),
+      },
+      select: { title: true, whenToUse: true },
+      take: 25,
+    });
+    return rows.map((r) => ({ title: r.title, whenToUse: r.whenToUse }));
   }
 
   async deleteEdge(organizationId: string, edgeId: string) {

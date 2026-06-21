@@ -14,7 +14,15 @@ const KIND_LABEL: Record<string, string> = {
   produces_consumes: 'data flow',
   parent_child: 'parent / child',
   same_identity: 'same identity',
+  related: 'related',
 };
+const KIND_OPTIONS = [
+  'references',
+  'produces_consumes',
+  'same_identity',
+  'parent_child',
+  'related',
+] as const;
 
 export default function KnowledgeGraphPage() {
   const { token, user } = useAuth();
@@ -138,6 +146,44 @@ export default function KnowledgeGraphPage() {
     await knowledgeGraph.deleteEdge(token, id);
     load();
     setSelectedEdgeId(null);
+  };
+  const saveEdge = async (
+    id: string,
+    body: { kind?: string; note?: string | null; status?: 'active' | 'rejected' | 'suggested' },
+  ) => {
+    if (!token) return;
+    try {
+      await knowledgeGraph.updateEdge(token, id, body);
+      setStatus('Saved');
+      load();
+    } catch (e: any) {
+      setStatus(e.message || 'Save failed');
+    }
+  };
+  const saveNode = async (id: string, body: { label?: string; description?: string | null }) => {
+    if (!token) return;
+    try {
+      await knowledgeGraph.updateNode(token, id, body);
+      setStatus('Saved');
+      load();
+    } catch (e: any) {
+      setStatus(e.message || 'Save failed');
+    }
+  };
+  const createEdge = async (body: {
+    sourceNodeId: string;
+    targetNodeId: string;
+    kind?: string;
+    note?: string;
+  }) => {
+    if (!token) return;
+    try {
+      await knowledgeGraph.createEdge(token, body);
+      setStatus('Connection added');
+      load();
+    } catch (e: any) {
+      setStatus(e.message || 'Create failed');
+    }
   };
 
   return (
@@ -265,20 +311,32 @@ export default function KnowledgeGraphPage() {
           {/* Side panel */}
           <aside className="border border-[var(--border)] rounded-lg p-4 h-[68vh] overflow-y-auto text-sm">
             {selectedNode ? (
-              <NodePanel node={selectedNode} edges={nodeEdges} nodeById={nodeById} />
+              <NodePanel
+                key={selectedNode.id}
+                node={selectedNode}
+                edges={nodeEdges}
+                nodeById={nodeById}
+                isAdmin={isAdmin}
+                onSave={(body) => saveNode(selectedNode.id, body)}
+              />
             ) : selectedEdge ? (
               <EdgePanel
+                key={selectedEdge.id}
                 edge={selectedEdge}
                 nodeById={nodeById}
                 isAdmin={isAdmin}
                 onConfirm={() => setEdgeStatus(selectedEdge.id, 'active')}
                 onReject={() => setEdgeStatus(selectedEdge.id, 'rejected')}
                 onDelete={() => deleteEdge(selectedEdge.id)}
+                onSave={(body) => saveEdge(selectedEdge.id, body)}
               />
             ) : (
               <div className="text-[var(--muted-foreground)]">
                 <p className="font-medium text-[var(--foreground)] mb-1">Explore</p>
-                <p>Click an entity to see its fields and links, or an edge to inspect (and confirm/reject) a relationship.</p>
+                <p>Click an entity to see its fields and links, or an edge to inspect (and edit) a relationship.</p>
+                {isAdmin && nodes.length >= 2 && (
+                  <AddEdgeForm nodes={nodes} onCreate={createEdge} />
+                )}
               </div>
             )}
           </aside>
@@ -295,6 +353,7 @@ function Legend() {
     ['data flow', '#16a34a'],
     ['parent / child', '#94a3b8'],
     ['same identity', '#f59e0b'],
+    ['related', '#a855f7'],
   ] as const;
   return (
     <div className="flex items-center gap-3 ml-auto">
@@ -312,17 +371,79 @@ function NodePanel({
   node,
   edges,
   nodeById,
+  isAdmin,
+  onSave,
 }: {
   node: KgNode;
   edges: KgEdge[];
   nodeById: Map<string, KgNode>;
+  isAdmin: boolean;
+  onSave: (body: { label?: string; description?: string | null }) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [label, setLabel] = useState(node.label);
+  const [description, setDescription] = useState(node.description ?? '');
   return (
     <div>
       <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
         {node.connectorName ?? 'connector'} · {String(node.source).toLowerCase()}
       </p>
-      <h2 className="text-lg font-semibold mb-2">{node.label}</h2>
+
+      {editing ? (
+        <div className="mb-3 space-y-2">
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            className="w-full px-2 py-1 rounded border border-[var(--border)] text-sm"
+            placeholder="Label"
+          />
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            className="w-full px-2 py-1 rounded border border-[var(--border)] text-[13px]"
+            placeholder="Description (shown to AI clients reading the graph)"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                onSave({ label, description: description.trim() ? description : null });
+                setEditing(false);
+              }}
+              className="px-2.5 py-1 rounded text-xs bg-[var(--brand)] text-white"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => {
+                setLabel(node.label);
+                setDescription(node.description ?? '');
+                setEditing(false);
+              }}
+              className="px-2.5 py-1 rounded text-xs border border-[var(--border)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">{node.label}</h2>
+            {node.description && (
+              <p className="text-[13px] text-[var(--muted-foreground)] mt-0.5">{node.description}</p>
+            )}
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() => setEditing(true)}
+              className="shrink-0 px-2 py-0.5 rounded text-xs border border-[var(--border)]"
+            >
+              Edit
+            </button>
+          )}
+        </div>
+      )}
 
       <p className="text-xs text-[var(--muted-foreground)] mb-1">Fields ({node.fields.length})</p>
       <div className="flex flex-wrap gap-1 mb-3">
@@ -370,6 +491,7 @@ function EdgePanel({
   onConfirm,
   onReject,
   onDelete,
+  onSave,
 }: {
   edge: KgEdge;
   nodeById: Map<string, KgNode>;
@@ -377,9 +499,13 @@ function EdgePanel({
   onConfirm: () => void;
   onReject: () => void;
   onDelete: () => void;
+  onSave: (body: { kind?: string; note?: string | null }) => void;
 }) {
   const src = nodeById.get(edge.sourceNodeId);
   const tgt = nodeById.get(edge.targetNodeId);
+  const [kind, setKind] = useState(edge.kind);
+  const [note, setNote] = useState(edge.note ?? '');
+  const dirty = kind !== edge.kind || (note ?? '') !== (edge.note ?? '');
   return (
     <div>
       <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
@@ -395,14 +521,50 @@ function EdgePanel({
         <Row k="Observations" v={String(edge.observations)} />
       </dl>
 
-      {edge.note && (
-        <p className="mt-2 text-[13px] text-[var(--muted-foreground)] italic">
-          &ldquo;{edge.note}&rdquo;
-        </p>
+      {isAdmin ? (
+        <div className="mt-3 space-y-2">
+          <label className="block text-xs text-[var(--muted-foreground)]">
+            Kind
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+              className="mt-0.5 w-full px-2 py-1 rounded border border-[var(--border)] text-sm bg-white"
+            >
+              {KIND_OPTIONS.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABEL[k] ?? k}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs text-[var(--muted-foreground)]">
+            Description (served to AI clients)
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              className="mt-0.5 w-full px-2 py-1 rounded border border-[var(--border)] text-[13px]"
+              placeholder="Why these entities are linked…"
+            />
+          </label>
+          <button
+            onClick={() => onSave({ kind, note: note.trim() ? note : null })}
+            disabled={!dirty}
+            className="px-2.5 py-1 rounded text-xs bg-[var(--brand)] text-white disabled:opacity-40"
+          >
+            Save changes
+          </button>
+        </div>
+      ) : (
+        edge.note && (
+          <p className="mt-2 text-[13px] text-[var(--muted-foreground)] italic">
+            &ldquo;{edge.note}&rdquo;
+          </p>
+        )
       )}
 
       {isAdmin && (
-        <div className="flex flex-wrap gap-2 mt-4">
+        <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-[var(--border)]">
           {edge.status === 'suggested' && (
             <button onClick={onConfirm} className="px-2.5 py-1 rounded text-xs bg-green-600 text-white">
               Confirm
@@ -416,6 +578,84 @@ function EdgePanel({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function AddEdgeForm({
+  nodes,
+  onCreate,
+}: {
+  nodes: KgNode[];
+  onCreate: (body: { sourceNodeId: string; targetNodeId: string; kind?: string; note?: string }) => void;
+}) {
+  const sorted = useMemo(
+    () => [...nodes].sort((a, b) => a.label.localeCompare(b.label)),
+    [nodes],
+  );
+  const [open, setOpen] = useState(false);
+  const [source, setSource] = useState('');
+  const [target, setTarget] = useState('');
+  const [kind, setKind] = useState<string>('references');
+  const [note, setNote] = useState('');
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-4 px-2.5 py-1 rounded text-xs bg-[var(--brand)] text-white"
+      >
+        + Add connection
+      </button>
+    );
+  }
+
+  const valid = source && target && source !== target;
+  return (
+    <div className="mt-4 space-y-2 border-t border-[var(--border)] pt-3">
+      <p className="font-medium text-[var(--foreground)]">New connection</p>
+      <select value={source} onChange={(e) => setSource(e.target.value)} className="w-full px-2 py-1 rounded border border-[var(--border)] text-sm bg-white">
+        <option value="">From entity…</option>
+        {sorted.map((n) => (
+          <option key={n.id} value={n.id}>{n.label} ({n.connectorName ?? '—'})</option>
+        ))}
+      </select>
+      <select value={kind} onChange={(e) => setKind(e.target.value)} className="w-full px-2 py-1 rounded border border-[var(--border)] text-sm bg-white">
+        {KIND_OPTIONS.map((k) => (
+          <option key={k} value={k}>{KIND_LABEL[k] ?? k}</option>
+        ))}
+      </select>
+      <select value={target} onChange={(e) => setTarget(e.target.value)} className="w-full px-2 py-1 rounded border border-[var(--border)] text-sm bg-white">
+        <option value="">To entity…</option>
+        {sorted.map((n) => (
+          <option key={n.id} value={n.id}>{n.label} ({n.connectorName ?? '—'})</option>
+        ))}
+      </select>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        rows={2}
+        placeholder="Description (optional, served to AI clients)"
+        className="w-full px-2 py-1 rounded border border-[var(--border)] text-[13px]"
+      />
+      <div className="flex gap-2">
+        <button
+          disabled={!valid}
+          onClick={() => {
+            onCreate({ sourceNodeId: source, targetNodeId: target, kind, note: note.trim() || undefined });
+            setSource('');
+            setTarget('');
+            setNote('');
+            setOpen(false);
+          }}
+          className="px-2.5 py-1 rounded text-xs bg-[var(--brand)] text-white disabled:opacity-40"
+        >
+          Add
+        </button>
+        <button onClick={() => setOpen(false)} className="px-2.5 py-1 rounded text-xs border border-[var(--border)]">
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

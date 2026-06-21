@@ -299,6 +299,7 @@ export interface KgNode {
   id: string;
   entity: string;
   label: string;
+  description?: string | null;
   connectorId: string;
   connectorName: string | null;
   fields: Array<{ name: string; type: string }>;
@@ -363,6 +364,26 @@ export const knowledgeGraph = {
       method: 'PATCH',
       body: { status },
     }),
+  createEdge: (
+    token: string,
+    body: { sourceNodeId: string; targetNodeId: string; kind?: string; note?: string },
+  ) =>
+    request<KgEdge>('/api/knowledge-graph/edges', { token, method: 'POST', body }),
+  updateEdge: (
+    token: string,
+    id: string,
+    body: {
+      status?: 'active' | 'rejected' | 'suggested';
+      kind?: string;
+      note?: string | null;
+      matchKey?: string | null;
+    },
+  ) => request<KgEdge>(`/api/knowledge-graph/edges/${id}`, { token, method: 'PATCH', body }),
+  updateNode: (
+    token: string,
+    id: string,
+    body: { label?: string; description?: string | null },
+  ) => request<KgNode>(`/api/knowledge-graph/nodes/${id}`, { token, method: 'PATCH', body }),
   deleteEdge: (token: string, id: string) =>
     request<{ ok: boolean }>(`/api/knowledge-graph/edges/${id}`, {
       token,

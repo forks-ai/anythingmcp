@@ -13,6 +13,7 @@ const EDGE_STYLE: Record<string, { color: string; dashed?: boolean; arrow?: bool
   produces_consumes: { color: '#16a34a', arrow: true },
   parent_child: { color: '#94a3b8', arrow: true },
   same_identity: { color: '#f59e0b', dashed: true },
+  related: { color: '#a855f7', dashed: true },
 };
 
 interface Pos {

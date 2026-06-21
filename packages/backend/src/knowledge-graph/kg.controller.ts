@@ -125,20 +125,27 @@ export class KgController {
   @ApiOperation({ summary: 'Create a manual link between two entities' })
   async createEdge(
     @Req() req: any,
-    @Body() body: { sourceNodeId: string; targetNodeId: string; kind?: string },
+    @Body()
+    body: { sourceNodeId: string; targetNodeId: string; kind?: string; note?: string },
   ) {
     return this.kg.createManualEdge(req.user.organizationId, body);
   }
 
   @Patch('edges/:id')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Confirm or reject a suggested edge' })
-  async setStatus(
+  @ApiOperation({ summary: 'Edit an edge: status, kind, and/or description (note)' })
+  async updateEdge(
     @Req() req: any,
     @Param('id') id: string,
-    @Body() body: { status: 'active' | 'rejected' },
+    @Body()
+    body: {
+      status?: 'active' | 'rejected' | 'suggested';
+      kind?: string;
+      note?: string | null;
+      matchKey?: string | null;
+    },
   ) {
-    return this.kg.setEdgeStatus(req.user.organizationId, id, body.status);
+    return this.kg.updateEdge(req.user.organizationId, id, body);
   }
 
   @Delete('edges/:id')
@@ -146,5 +153,16 @@ export class KgController {
   @ApiOperation({ summary: 'Delete an edge' })
   async deleteEdge(@Req() req: any, @Param('id') id: string) {
     return this.kg.deleteEdge(req.user.organizationId, id);
+  }
+
+  @Patch('nodes/:id')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Edit an entity node: label and/or description' })
+  async updateNode(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: { label?: string; description?: string | null },
+  ) {
+    return this.kg.updateNode(req.user.organizationId, id, body);
   }
 }

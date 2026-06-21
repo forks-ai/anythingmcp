@@ -75,6 +75,7 @@ export class KgObservationalService {
         createdAt: true,
         input: true,
         output: true,
+        intent: true,
         tool: { select: { name: true } },
       },
       orderBy: { createdAt: 'asc' },
@@ -110,6 +111,9 @@ export class KgObservationalService {
       string,
       { connectorId: string; from: string; to: string; field: string }
     >();
+    // Entities whose tools served the SAME captured user request (intent).
+    // intent -> set of `${connectorId}::${entity}`.
+    const intentGroups = new Map<string, Set<string>>();
     const maxTsByConnector = new Map<string, Date>();
 
     for (const inv of invocations) {
@@ -143,6 +147,20 @@ export class KgObservationalService {
       };
       collect(inv.input, 'input');
       collect(inv.output, 'output');
+
+      // Record which entity served this captured user request, so entities used
+      // together for the same intent can be linked below (chat history → graph).
+      if (inv.intent) {
+        const key = String(inv.intent).toLowerCase().trim().slice(0, 200);
+        if (key) {
+          let g = intentGroups.get(key);
+          if (!g) {
+            g = new Set();
+            intentGroups.set(key, g);
+          }
+          g.add(`${connectorId}::${ent.entity}`);
+        }
+      }
 
       // Mine the response SHAPE: a field like `customer_id` in the output means
       // this entity references Customer, even with no value coincidence.
@@ -181,6 +199,33 @@ export class KgObservationalService {
           status: 'active',
         });
         edges++;
+      }
+    }
+
+    // Intent co-occurrence: entities whose tools satisfied the SAME captured
+    // user request are related. A weak, suggested signal (awaits confirmation)
+    // — this is how the chat history that led to calls extends the graph.
+    const coCache = new Map<string, string>();
+    for (const members of intentGroups.values()) {
+      const list = [...members];
+      if (list.length < 2) continue;
+      let pairs = 0;
+      for (let i = 0; i < list.length && pairs < MAX_PAIRS_PER_HASH; i++) {
+        for (let j = i + 1; j < list.length && pairs < MAX_PAIRS_PER_HASH; j++) {
+          const [ca, ea] = list[i].split('::');
+          const [cb, eb] = list[j].split('::');
+          const na = await this.nodeId(coCache, organizationId, ca, ea);
+          const nb = await this.nodeId(coCache, organizationId, cb, eb);
+          if (!na || !nb || na === nb) continue;
+          const [src, tgt] = na < nb ? [na, nb] : [nb, na];
+          await this.bumpEdge(organizationId, src, tgt, 'related', {
+            base: 0.3,
+            cap: 0.7,
+            status: 'suggested',
+          });
+          edges++;
+          pairs++;
+        }
       }
     }
 

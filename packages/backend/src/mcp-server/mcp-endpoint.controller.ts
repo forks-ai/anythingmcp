@@ -716,23 +716,30 @@ export class McpEndpointController {
       !registeredNames.has('kg_how_to_obtain')
     ) {
       const orgId = invocationContext.organizationId;
+      const scopeConnectorIds = invocationContext.connectorIds;
+      const scopeServerId = invocationContext.mcpServerId;
       entries.push({
         name: 'kg_how_to_obtain',
         sig: 'kg_how_to_obtain',
         register: (mcpServer: McpServer) =>
           mcpServer.tool(
             'kg_how_to_obtain',
-            'Knowledge graph for this workspace: given an entity or a parameter you need ' +
+            'Knowledge graph for THIS MCP server: given an entity or a parameter you need ' +
               '(e.g. "customer_id", "order", "person"), returns which entities/tools produce ' +
-              'or relate to it across the connected systems, so you can chain tool calls. ' +
-              "Relationships are learned from this workspace's connectors and real usage.",
+              'or relate to it across the connectors assigned to this server, plus any ' +
+              'human-written descriptions and the workspace skills (pre-built workflows) you ' +
+              'can use. Relationships are learned from these connectors, real usage, and ' +
+              'curated edits, so you can chain tool calls.',
             {
               query: z
                 .string()
                 .describe('An entity or parameter name, e.g. "customer_id" or "deal".'),
             },
             async (args: { query: string }) => {
-              const result = await this.kgService.lookup(orgId, args.query);
+              const result = await this.kgService.lookup(orgId, args.query, {
+                connectorIds: scopeConnectorIds,
+                mcpServerId: scopeServerId,
+              });
               return {
                 content: [
                   { type: 'text' as const, text: JSON.stringify(result, null, 2) },
