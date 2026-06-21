@@ -2,6 +2,7 @@ import { ConflictException, Injectable, Logger, NotFoundException } from '@nestj
 import { PrismaService } from '../common/prisma.service';
 import { KgLlmService } from './kg-llm.service';
 import { chatJson, resolveLlmConfig } from './llm-client';
+import { maybeRedactIntent } from './redact';
 
 const MAX_INTENTS = 200;
 
@@ -76,7 +77,7 @@ export class KgSkillService {
     if (invocations.length === 0) return { created: 0, model: cfg.model };
 
     const calls = invocations.map((i) => ({
-      intent: (i.intent ?? '').slice(0, 400),
+      intent: maybeRedactIntent((i.intent ?? '').slice(0, 400)),
       tool: i.tool?.name ?? 'unknown',
       connector: i.tool?.connector?.name ?? '',
       ok: i.status === 'SUCCESS',
@@ -142,7 +143,7 @@ export class KgSkillService {
     });
 
     const calls = invocations.map((i) => ({
-      intent: (i.intent ?? '').slice(0, 400),
+      intent: maybeRedactIntent((i.intent ?? '').slice(0, 400)),
       tool: i.tool?.name ?? 'unknown',
       connector: i.tool?.connector?.name ?? '',
       ok: i.status === 'SUCCESS',

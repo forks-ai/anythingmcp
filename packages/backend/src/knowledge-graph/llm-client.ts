@@ -22,7 +22,8 @@ export function resolveLlmConfig(): LlmConfig | null {
   if (!apiKey) return null;
   const model =
     process.env.KG_LLM_MODEL ||
-    (provider === 'anthropic' ? 'claude-3-5-haiku-latest' : 'gpt-4o-mini');
+    // Anthropic default: Haiku 4.5 (claude-3-5-haiku was retired Feb 2026).
+    (provider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-4o-mini');
   return { provider, model, apiKey };
 }
 
@@ -50,7 +51,17 @@ export async function chatJson(
         model: cfg.model,
         max_tokens: maxTokens,
         temperature: 0,
-        system: system + '\nRespond with a single JSON object and nothing else.',
+        // System prompt as a cacheable block: the instructions are identical
+        // across calls, so prompt caching serves them at ~0.1x on repeats.
+        // (Only kicks in once the prefix passes the model's cache minimum;
+        // harmless otherwise.) OpenAI/OpenRouter cache automatically.
+        system: [
+          {
+            type: 'text',
+            text: system + '\nRespond with a single JSON object and nothing else.',
+            cache_control: { type: 'ephemeral' },
+          },
+        ],
         messages: [{ role: 'user', content: user }],
       }),
     });
