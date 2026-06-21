@@ -80,6 +80,14 @@ export class OpenApiParser {
     const declaredVersion = (rawSpec as { openapi?: string }).openapi || '';
     const isOpenApi31 = declaredVersion.startsWith('3.1');
 
+    // swagger-parser only recognises OAS 3.0.0–3.0.3; newer patch releases
+    // (3.0.4 is current as of 2024 — e.g. the canonical Swagger Petstore) are
+    // rejected as "Unsupported OpenAPI version" even though they're 3.0-compatible.
+    // Coerce the declared patch version down so validation/dereference accept it.
+    if (/^3\.0\.[4-9]/.test(declaredVersion) && (rawSpec as any).openapi) {
+      (rawSpec as any).openapi = '3.0.3';
+    }
+
     // For 3.1 docs, translate the JSON-Schema-2020-12 constructs we know break
     // the downstream extractor (nullable unions, const, examples plural, numeric
     // exclusiveMin/Max) into their 3.0 equivalents. This runs *before*
@@ -94,16 +102,22 @@ export class OpenApiParser {
         ? await SwaggerParser.dereference(rawSpec as any)
         : await SwaggerParser.validate(rawSpec as any);
     } catch (err: any) {
-      // swagger-parser lumps "version unsupported" with all other validation
-      // errors. Translate to a clearer message; keep the original details in
-      // the cause so support can still see the full reason.
+      // swagger-parser's bundled validator only knows OAS 3.0.0–3.0.3, so newer
+      // patch releases (e.g. 3.0.4, current as of 2024) are rejected as
+      // "Unsupported OpenAPI version". Dereference doesn't validate the version,
+      // so fall back to it (same path as 3.1) to still extract tools.
       if (err?.message?.includes('Unsupported OpenAPI version')) {
-        throw new Error(
-          'This OpenAPI document declares a version we don\'t fully support. ' +
-            'Try with an OpenAPI 3.0 spec, or contact support if the problem persists.',
-        );
+        try {
+          api = await SwaggerParser.dereference(rawSpec as any);
+        } catch {
+          throw new Error(
+            'This OpenAPI document declares a version we don\'t fully support. ' +
+              'Try with an OpenAPI 3.0 spec, or contact support if the problem persists.',
+          );
+        }
+      } else {
+        throw err;
       }
-      throw err;
     }
 
     const tools = this.extractTools(api);

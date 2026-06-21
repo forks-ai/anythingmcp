@@ -706,6 +706,30 @@ describe('OpenApiParser', () => {
     expect((t.outputSchema as any).properties.addresses.type).toBe('array');
   });
 
+  it('accepts a 3.0.4 spec by coercing the patch version (swagger-parser caps at 3.0.3)', async () => {
+    const spec = {
+      openapi: '3.0.4',
+      info: { title: 't', version: '1' },
+      paths: {
+        '/pets': {
+          get: {
+            operationId: 'listPets',
+            responses: {
+              '200': {
+                description: 'ok',
+                content: {
+                  'application/json': { schema: { type: 'object', properties: { id: { type: 'string' } } } },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const tools = await parser.parse(spec);
+    expect(tools.find((t) => t.name === 'listpets')).toBeDefined();
+  });
+
   it('resolves a $ref response schema', async () => {
     const spec = {
       openapi: '3.0.0',

@@ -15,21 +15,33 @@ const INTROSPECTION_QUERY = `
         fields {
           name
           description
+          type { ...TypeRef }
           args {
             name
             description
-            type {
-              kind
-              name
-              ofType {
-                kind
-                name
-                ofType {
-                  kind
-                  name
-                }
-              }
-            }
+            type { ...TypeRef }
+          }
+        }
+      }
+    }
+  }
+
+  fragment TypeRef on __Type {
+    kind
+    name
+    ofType {
+      kind
+      name
+      ofType {
+        kind
+        name
+        ofType {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType { kind name }
           }
         }
       }
