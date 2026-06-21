@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { knowledgeGraph, type KgNode, type KgEdge } from '@/lib/api';
+import { knowledgeGraph, connectors as connectorsApi, type KgNode, type KgEdge } from '@/lib/api';
 import { NavBar } from '@/components/nav-bar';
 import { Footer } from '@/components/footer';
 import { KgGraph } from '@/components/kg-graph';
@@ -37,6 +37,7 @@ export default function KnowledgeGraphPage() {
   const [status, setStatus] = useState<string>('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [connectorList, setConnectorList] = useState<Array<{ id: string; name: string }>>([]);
 
   // Filters
   const [activeSources, setActiveSources] = useState<Set<string>>(new Set(SOURCES));
@@ -67,6 +68,10 @@ export default function KnowledgeGraphPage() {
   useEffect(() => {
     if (!token) return;
     knowledgeGraph.getSettings(token).then((s) => setLlmEnabled(s.llmEnabled)).catch(() => {});
+    connectorsApi
+      .list(token)
+      .then((c: any[]) => setConnectorList(c.map((x) => ({ id: x.id, name: x.name }))))
+      .catch(() => {});
   }, [token]);
 
   const enrich = async () => {
@@ -191,6 +196,20 @@ export default function KnowledgeGraphPage() {
     try {
       await knowledgeGraph.createEdge(token, body);
       setStatus('Connection added');
+      load();
+    } catch (e: any) {
+      setStatus(e.message || 'Create failed');
+    }
+  };
+  const createNode = async (body: {
+    connectorId: string;
+    label: string;
+    description?: string;
+  }) => {
+    if (!token) return;
+    try {
+      await knowledgeGraph.createNode(token, body);
+      setStatus('Entity added');
       load();
     } catch (e: any) {
       setStatus(e.message || 'Create failed');
@@ -346,6 +365,9 @@ export default function KnowledgeGraphPage() {
               <div className="text-[var(--muted-foreground)]">
                 <p className="font-medium text-[var(--foreground)] mb-1">Explore</p>
                 <p>Click an entity to see its fields and links, or an edge to inspect (and edit) a relationship.</p>
+                {isAdmin && connectorList.length > 0 && (
+                  <AddNodeForm connectors={connectorList} onCreate={createNode} />
+                )}
                 {isAdmin && nodes.length >= 2 && (
                   <AddEdgeForm nodes={nodes} onCreate={createEdge} />
                 )}
@@ -601,6 +623,77 @@ function EdgePanel({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function AddNodeForm({
+  connectors,
+  onCreate,
+}: {
+  connectors: Array<{ id: string; name: string }>;
+  onCreate: (body: { connectorId: string; label: string; description?: string }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState('');
+  const [connectorId, setConnectorId] = useState('');
+  const [description, setDescription] = useState('');
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-4 mr-2 px-2.5 py-1 rounded text-xs bg-[var(--brand)] text-white"
+      >
+        + Add entity
+      </button>
+    );
+  }
+  const valid = label.trim() && connectorId;
+  return (
+    <div className="mt-4 space-y-2 border-t border-[var(--border)] pt-3">
+      <p className="font-medium text-[var(--foreground)]">New entity</p>
+      <input
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        placeholder="Label (e.g. Loyalty tier)"
+        className="w-full px-2 py-1 rounded border border-[var(--border)] text-sm"
+      />
+      <select
+        value={connectorId}
+        onChange={(e) => setConnectorId(e.target.value)}
+        className="w-full px-2 py-1 rounded border border-[var(--border)] text-sm bg-white"
+      >
+        <option value="">Belongs to connector…</option>
+        {connectors.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        rows={2}
+        placeholder="Description (optional, served to AI clients)"
+        className="w-full px-2 py-1 rounded border border-[var(--border)] text-[13px]"
+      />
+      <div className="flex gap-2">
+        <button
+          disabled={!valid}
+          onClick={() => {
+            onCreate({ connectorId, label, description: description.trim() || undefined });
+            setLabel('');
+            setConnectorId('');
+            setDescription('');
+            setOpen(false);
+          }}
+          className="px-2.5 py-1 rounded text-xs bg-[var(--brand)] text-white disabled:opacity-40"
+        >
+          Add entity
+        </button>
+        <button onClick={() => setOpen(false)} className="px-2.5 py-1 rounded text-xs border border-[var(--border)]">
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

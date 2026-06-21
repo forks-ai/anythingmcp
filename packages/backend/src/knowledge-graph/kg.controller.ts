@@ -138,6 +138,16 @@ export class KgController {
     return this.kg.rebuild(req.user.organizationId);
   }
 
+  @Post('nodes')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Create a custom entity attached to a connector' })
+  async createNode(
+    @Req() req: any,
+    @Body() body: { connectorId: string; label: string; entity?: string; description?: string },
+  ) {
+    return this.kg.createNode(req.user.organizationId, body);
+  }
+
   @Post('edges')
   @Roles('ADMIN')
   @ApiOperation({ summary: 'Create a manual link between two entities' })

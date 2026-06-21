@@ -389,6 +389,10 @@ export const knowledgeGraph = {
       token,
       method: 'DELETE',
     }),
+  createNode: (
+    token: string,
+    body: { connectorId: string; label: string; entity?: string; description?: string },
+  ) => request<KgNode>('/api/knowledge-graph/nodes', { token, method: 'POST', body }),
   deleteNode: (token: string, id: string) =>
     request<{ ok: boolean }>(`/api/knowledge-graph/nodes/${id}`, { token, method: 'DELETE' }),
   skills: {

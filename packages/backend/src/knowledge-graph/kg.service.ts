@@ -247,6 +247,63 @@ export class KgService {
     }
   }
 
+  /**
+   * Create a custom entity by hand, attached to a chosen connector (so it stays
+   * tenant-scoped, is served to the MCP servers that use that connector, and
+   * survives rebuilds — STATIC sweeps never touch MANUAL nodes). Lets a workspace
+   * model concepts its tool names don't surface, and link them to real entities.
+   */
+  async createNode(
+    organizationId: string,
+    body: { connectorId: string; label: string; entity?: string; description?: string },
+  ) {
+    if (!body.connectorId) {
+      throw new ForbiddenException('A connector is required for a manual entity.');
+    }
+    const connector = await this.prisma.connector.findUnique({
+      where: { id: body.connectorId },
+      select: { organizationId: true },
+    });
+    if (!connector || connector.organizationId !== organizationId) {
+      throw new NotFoundException('Connector not found.');
+    }
+    const label = (body.label || '').trim().slice(0, 200);
+    if (!label) throw new ConflictException('A label is required.');
+    const entity =
+      ((body.entity || label)
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '')
+        .slice(0, 80)) || 'entity';
+
+    const exists = await this.prisma.kgNode.findUnique({
+      where: {
+        organizationId_connectorId_entity: {
+          organizationId,
+          connectorId: body.connectorId,
+          entity,
+        },
+      },
+      select: { id: true },
+    });
+    if (exists) {
+      throw new ConflictException('An entity with that name already exists for this connector.');
+    }
+    return this.prisma.kgNode.create({
+      data: {
+        organizationId,
+        connectorId: body.connectorId,
+        entity,
+        label,
+        description:
+          typeof body.description === 'string' ? body.description.slice(0, 2000) : null,
+        source: 'MANUAL',
+        confidence: 1,
+      },
+    });
+  }
+
   async createManualEdge(
     organizationId: string,
     body: { sourceNodeId: string; targetNodeId: string; kind?: string; note?: string },
