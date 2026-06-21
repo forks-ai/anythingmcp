@@ -71,6 +71,24 @@ export class KgController {
     return this.skills.list(req.user.organizationId);
   }
 
+  @Post('skills')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Create a skill manually (live for MCP by default)' })
+  async createSkill(
+    @Req() req: any,
+    @Body()
+    body: {
+      title: string;
+      whenToUse?: string;
+      instruction: string;
+      connectorId?: string | null;
+      mcpServerId?: string | null;
+      status?: string;
+    },
+  ) {
+    return this.skills.create(req.user.organizationId, body);
+  }
+
   @Post('skills/generate')
   @Roles('ADMIN')
   @ApiOperation({
@@ -164,5 +182,12 @@ export class KgController {
     @Body() body: { label?: string; description?: string | null },
   ) {
     return this.kg.updateNode(req.user.organizationId, id, body);
+  }
+
+  @Delete('nodes/:id')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Delete an entity node and its edges' })
+  async deleteNode(@Req() req: any, @Param('id') id: string) {
+    return this.kg.deleteNode(req.user.organizationId, id);
   }
 }

@@ -222,6 +222,68 @@ export class KgSkillService {
     return `## Workspace skills\n${body}`;
   }
 
+  /**
+   * Create a skill by hand (not AI-generated). Scoped to a single connector OR a
+   * whole MCP server (mutually exclusive). Defaults to `applied` so it is live
+   * for MCP immediately — a deliberately authored rule needs no review step.
+   */
+  async create(
+    organizationId: string,
+    body: {
+      title: string;
+      whenToUse?: string;
+      instruction: string;
+      connectorId?: string | null;
+      mcpServerId?: string | null;
+      status?: string;
+    },
+  ) {
+    const title = (body.title || '').trim().slice(0, 160);
+    const instruction = (body.instruction || '').trim().slice(0, 2000);
+    if (!title || !instruction) {
+      throw new ConflictException('A skill needs a title and an instruction.');
+    }
+    // Validate the chosen scope belongs to this org (fail closed).
+    let connectorId: string | null = null;
+    let mcpServerId: string | null = null;
+    if (body.mcpServerId) {
+      const srv = await this.prisma.mcpServerConfig.findUnique({
+        where: { id: body.mcpServerId },
+        select: { organizationId: true },
+      });
+      if (!srv || srv.organizationId !== organizationId) {
+        throw new NotFoundException('MCP server not found.');
+      }
+      mcpServerId = body.mcpServerId;
+    } else if (body.connectorId) {
+      const con = await this.prisma.connector.findUnique({
+        where: { id: body.connectorId },
+        select: { organizationId: true },
+      });
+      if (!con || con.organizationId !== organizationId) {
+        throw new NotFoundException('Connector not found.');
+      }
+      connectorId = body.connectorId;
+    }
+    const status =
+      body.status && ['pending', 'applied', 'dismissed'].includes(body.status)
+        ? body.status
+        : 'applied';
+    return this.prisma.kgSkillSuggestion.create({
+      data: {
+        organizationId,
+        connectorId,
+        mcpServerId,
+        title,
+        whenToUse: typeof body.whenToUse === 'string' ? body.whenToUse.slice(0, 1000) : '',
+        instruction,
+        confidence: 1,
+        evidenceCount: 0,
+        status,
+      },
+    });
+  }
+
   private async owned(organizationId: string, id: string) {
     const s = await this.prisma.kgSkillSuggestion.findUnique({ where: { id } });
     if (!s || s.organizationId !== organizationId) throw new NotFoundException('Suggestion not found.');

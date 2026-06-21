@@ -389,8 +389,21 @@ export const knowledgeGraph = {
       token,
       method: 'DELETE',
     }),
+  deleteNode: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/api/knowledge-graph/nodes/${id}`, { token, method: 'DELETE' }),
   skills: {
     list: (token: string) => request<KgSkill[]>('/api/knowledge-graph/skills', { token }),
+    create: (
+      token: string,
+      body: {
+        title: string;
+        whenToUse?: string;
+        instruction: string;
+        connectorId?: string | null;
+        mcpServerId?: string | null;
+        status?: string;
+      },
+    ) => request<KgSkill>('/api/knowledge-graph/skills', { token, method: 'POST', body }),
     generate: (token: string, mcpServerId?: string) =>
       request<{ created: number; model?: string }>('/api/knowledge-graph/skills/generate', {
         token,

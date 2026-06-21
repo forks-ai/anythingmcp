@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { knowledgeGraph, mcpServers as mcpServersApi, type KgSkill } from '@/lib/api';
+import {
+  knowledgeGraph,
+  mcpServers as mcpServersApi,
+  connectors as connectorsApi,
+  type KgSkill,
+} from '@/lib/api';
 import { NavBar } from '@/components/nav-bar';
 import { Footer } from '@/components/footer';
 
@@ -11,9 +16,11 @@ export default function SkillsPage() {
   const { token, user } = useAuth();
   const [skills, setSkills] = useState<KgSkill[]>([]);
   const [servers, setServers] = useState<Array<{ id: string; name: string }>>([]);
+  const [connectorList, setConnectorList] = useState<Array<{ id: string; name: string }>>([]);
   const [target, setTarget] = useState<string>(''); // '' = connectors, else mcpServerId
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [showNew, setShowNew] = useState(false);
   const [status, setStatus] = useState('');
   const isAdmin = user?.role === 'ADMIN';
 
@@ -31,6 +38,7 @@ export default function SkillsPage() {
   useEffect(() => {
     if (!token) return;
     mcpServersApi.list(token).then((s: any[]) => setServers(s.map((x) => ({ id: x.id, name: x.name })))).catch(() => {});
+    connectorsApi.list(token).then((c: any[]) => setConnectorList(c.map((x) => ({ id: x.id, name: x.name })))).catch(() => {});
   }, [token]);
 
   const generate = async () => {
@@ -77,9 +85,15 @@ export default function SkillsPage() {
               <button
                 onClick={generate}
                 disabled={generating}
-                className="px-3 py-1.5 rounded-md text-sm bg-[var(--brand)] text-white hover:opacity-90 disabled:opacity-50"
+                className="px-3 py-1.5 rounded-md text-sm border border-[var(--brand)] text-[var(--brand)] hover:bg-[var(--brand-light)] disabled:opacity-50"
               >
-                {generating ? 'Generating…' : 'Generate'}
+                {generating ? 'Generating…' : 'Generate with AI'}
+              </button>
+              <button
+                onClick={() => setShowNew((v) => !v)}
+                className="px-3 py-1.5 rounded-md text-sm bg-[var(--brand)] text-white hover:opacity-90"
+              >
+                {showNew ? 'Close' : '+ New skill'}
               </button>
             </div>
           )
@@ -96,6 +110,19 @@ export default function SkillsPage() {
           </Link>
         </p>
         {status && <p className="text-xs text-[var(--muted-foreground)] mb-3">{status}</p>}
+
+        {isAdmin && showNew && (
+          <NewSkillForm
+            token={token!}
+            servers={servers}
+            connectors={connectorList}
+            onCreated={() => {
+              setShowNew(false);
+              setStatus('Skill created (live for MCP).');
+              load();
+            }}
+          />
+        )}
 
         {loading ? (
           <p className="text-[var(--muted-foreground)]">Loading…</p>
@@ -266,6 +293,107 @@ function SkillCard({
       <p className="text-[13px] mt-1">
         <span className="text-[var(--muted-foreground)]">Do:</span> {s.instruction}
       </p>
+    </div>
+  );
+}
+
+function NewSkillForm({
+  token,
+  servers,
+  connectors,
+  onCreated,
+}: {
+  token: string;
+  servers: Array<{ id: string; name: string }>;
+  connectors: Array<{ id: string; name: string }>;
+  onCreated: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [whenToUse, setWhenToUse] = useState('');
+  const [instruction, setInstruction] = useState('');
+  const [scope, setScope] = useState(''); // "srv:<id>" | "con:<id>" | ""
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const valid = title.trim() && instruction.trim() && scope;
+
+  const submit = async () => {
+    if (!valid) return;
+    setSaving(true);
+    setErr('');
+    const body: any = { title, whenToUse, instruction };
+    if (scope.startsWith('srv:')) body.mcpServerId = scope.slice(4);
+    else if (scope.startsWith('con:')) body.connectorId = scope.slice(4);
+    try {
+      await knowledgeGraph.skills.create(token, body);
+      setTitle('');
+      setWhenToUse('');
+      setInstruction('');
+      setScope('');
+      onCreated();
+    } catch (e: any) {
+      setErr(e.message || 'Create failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border border-[var(--border)] rounded-lg p-4 mb-5 space-y-2 bg-[var(--accent)]/40">
+      <p className="font-medium text-sm">New skill</p>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Title (e.g. Always confirm the delivery address)"
+        className="w-full px-2 py-1.5 rounded border border-[var(--border)] text-sm"
+      />
+      <input
+        value={whenToUse}
+        onChange={(e) => setWhenToUse(e.target.value)}
+        placeholder="When to use (optional)"
+        className="w-full px-2 py-1.5 rounded border border-[var(--border)] text-sm"
+      />
+      <textarea
+        value={instruction}
+        onChange={(e) => setInstruction(e.target.value)}
+        rows={3}
+        placeholder="Instruction for the agent (imperative guidance)"
+        className="w-full px-2 py-1.5 rounded border border-[var(--border)] text-sm"
+      />
+      <select
+        value={scope}
+        onChange={(e) => setScope(e.target.value)}
+        className="w-full px-2 py-1.5 rounded border border-[var(--border)] text-sm bg-white"
+      >
+        <option value="">Scope… (where this skill applies)</option>
+        {servers.length > 0 && (
+          <optgroup label="MCP servers">
+            {servers.map((s) => (
+              <option key={s.id} value={`srv:${s.id}`}>Server: {s.name}</option>
+            ))}
+          </optgroup>
+        )}
+        {connectors.length > 0 && (
+          <optgroup label="Connectors">
+            {connectors.map((c) => (
+              <option key={c.id} value={`con:${c.id}`}>Connector: {c.name}</option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+      {err && <p className="text-xs text-[var(--destructive)]">{err}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={submit}
+          disabled={!valid || saving}
+          className="px-3 py-1.5 rounded text-sm bg-[var(--brand)] text-white disabled:opacity-40"
+        >
+          {saving ? 'Creating…' : 'Create skill'}
+        </button>
+        <span className="text-xs text-[var(--muted-foreground)]">
+          Created as active → immediately available to the MCP server.
+        </span>
+      </div>
     </div>
   );
 }

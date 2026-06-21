@@ -373,6 +373,23 @@ export class KgService {
   }
 
   /**
+   * Delete a node and (via FK cascade) its edges. Note: a STATIC node will be
+   * re-created on the next rebuild if its connector still exposes the tools that
+   * imply it; deleting is permanent only for OBSERVED/MANUAL noise.
+   */
+  async deleteNode(organizationId: string, nodeId: string) {
+    const node = await this.prisma.kgNode.findUnique({
+      where: { id: nodeId },
+      select: { organizationId: true },
+    });
+    if (!node || node.organizationId !== organizationId) {
+      throw new NotFoundException('Node not found.');
+    }
+    await this.prisma.kgNode.delete({ where: { id: nodeId } });
+    return { ok: true };
+  }
+
+  /**
    * Answer "how do I obtain / what relates to X" — the payload behind the
    * MCP-exposed system tool. X is an entity or a parameter name (e.g.
    * "customer_id", "order").

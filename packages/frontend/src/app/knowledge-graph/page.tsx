@@ -160,6 +160,17 @@ export default function KnowledgeGraphPage() {
       setStatus(e.message || 'Save failed');
     }
   };
+  const deleteNode = async (id: string) => {
+    if (!token) return;
+    try {
+      await knowledgeGraph.deleteNode(token, id);
+      setStatus('Entity deleted');
+      setSelectedNodeId(null);
+      load();
+    } catch (e: any) {
+      setStatus(e.message || 'Delete failed');
+    }
+  };
   const saveNode = async (id: string, body: { label?: string; description?: string | null }) => {
     if (!token) return;
     try {
@@ -318,6 +329,7 @@ export default function KnowledgeGraphPage() {
                 nodeById={nodeById}
                 isAdmin={isAdmin}
                 onSave={(body) => saveNode(selectedNode.id, body)}
+                onDelete={() => deleteNode(selectedNode.id)}
               />
             ) : selectedEdge ? (
               <EdgePanel
@@ -373,12 +385,14 @@ function NodePanel({
   nodeById,
   isAdmin,
   onSave,
+  onDelete,
 }: {
   node: KgNode;
   edges: KgEdge[];
   nodeById: Map<string, KgNode>;
   isAdmin: boolean;
   onSave: (body: { label?: string; description?: string | null }) => void;
+  onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(node.label);
@@ -435,12 +449,21 @@ function NodePanel({
             )}
           </div>
           {isAdmin && (
-            <button
-              onClick={() => setEditing(true)}
-              className="shrink-0 px-2 py-0.5 rounded text-xs border border-[var(--border)]"
-            >
-              Edit
-            </button>
+            <div className="shrink-0 flex gap-1.5">
+              <button
+                onClick={() => setEditing(true)}
+                className="px-2 py-0.5 rounded text-xs border border-[var(--border)]"
+              >
+                Edit
+              </button>
+              <button
+                onClick={onDelete}
+                className="px-2 py-0.5 rounded text-xs text-[var(--destructive)] border border-[var(--border)]"
+                title="Delete this entity and its links"
+              >
+                Delete
+              </button>
+            </div>
           )}
         </div>
       )}
