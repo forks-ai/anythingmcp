@@ -744,6 +744,21 @@ model KgSkillSuggestion {
   @@map("kg_skill_suggestions")
 }
 
+// A submitted LLM batch job (cloud cron, cost-saver). Tracks the provider batch
+// id so a later cron run can retrieve results and apply them. `context` maps each
+// request's custom_id to what's needed to apply its result (org, type, ref map).
+model KgLlmBatch {
+  id         String   @id @default(cuid())
+  provider   String
+  externalId String   @map("external_id")
+  status     String   @default("pending") // pending | done
+  context    Json // { [customId]: { type, organizationId, ... } }
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("kg_llm_batches")
+}
+
 // Short-lived, PII-safe index of identifier value HASHES (HMAC with a per-org
 // secret) used to correlate produce→consume / identity across invocations.
 // Stores hashes + field metadata only — never raw values. TTL-pruned.

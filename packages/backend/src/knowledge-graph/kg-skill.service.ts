@@ -64,6 +64,18 @@ export class KgSkillService {
 
   private async generateForConnectors(organizationId: string) {
     const cfg = resolveLlmConfig()!;
+    const built = await this.buildConnectorRequest(organizationId);
+    if (!built) return { created: 0, model: cfg.model };
+    const { json, usage } = await chatJson(cfg, built.system, built.user, 1500);
+    const created = await this.applyConnectorResult(organizationId, json);
+    this.logger.log(`KG skills (connectors) ${organizationId}: ${created}`);
+    return { created, model: cfg.model, usage };
+  }
+
+  /** Pure prompt builder for connector-scoped skills (intents redacted). */
+  async buildConnectorRequest(
+    organizationId: string,
+  ): Promise<{ system: string; user: string } | null> {
     const invocations = await this.prisma.toolInvocation.findMany({
       where: { organizationId, intent: { not: null } },
       select: {
@@ -74,7 +86,7 @@ export class KgSkillService {
       orderBy: { createdAt: 'desc' },
       take: MAX_INTENTS,
     });
-    if (invocations.length === 0) return { created: 0, model: cfg.model };
+    if (invocations.length === 0) return null;
 
     const calls = invocations.map((i) => ({
       intent: maybeRedactIntent((i.intent ?? '').slice(0, 400)),
@@ -82,10 +94,12 @@ export class KgSkillService {
       connector: i.tool?.connector?.name ?? '',
       ok: i.status === 'SUCCESS',
     }));
+    return { system: CONNECTOR_PROMPT, user: JSON.stringify({ calls }) };
+  }
 
-    const { json, usage } = await chatJson(cfg, CONNECTOR_PROMPT, JSON.stringify({ calls }), 1500);
+  /** Apply a connector-scoped skills LLM result (sync or batch). */
+  async applyConnectorResult(organizationId: string, json: any): Promise<number> {
     const skills: any[] = Array.isArray(json?.skills) ? json.skills : [];
-
     const connectors = await this.prisma.connector.findMany({
       where: { organizationId },
       select: { id: true, name: true },
@@ -102,8 +116,7 @@ export class KgSkillService {
         typeof s?.connector === 'string' ? (idByName.get(s.connector.toLowerCase()) ?? null) : null;
       if (await this.insertSkill(organizationId, { connectorId }, s)) created++;
     }
-    this.logger.log(`KG skills (connectors) ${organizationId}: ${created} from ${invocations.length} intents`);
-    return { created, model: cfg.model, usage };
+    return created;
   }
 
   private async generateForServer(organizationId: string, mcpServerId: string) {

@@ -101,6 +101,96 @@ export async function chatJson(
   };
 }
 
+export interface BatchRequest {
+  customId: string;
+  system: string;
+  user: string;
+  maxTokens?: number;
+}
+
+/**
+ * Submit a Message Batch (Anthropic only) — processed asynchronously at ~50% of
+ * standard price. Returns the provider batch id to poll later. Used by the cloud
+ * cron for the (non-latency-sensitive) graph/skill extension.
+ */
+export async function submitBatch(
+  cfg: LlmConfig,
+  requests: BatchRequest[],
+): Promise<string> {
+  if (cfg.provider !== 'anthropic') {
+    throw new Error('Batch mode currently supports the anthropic provider only.');
+  }
+  const body = {
+    requests: requests.map((r) => ({
+      custom_id: r.customId,
+      params: {
+        model: cfg.model,
+        max_tokens: r.maxTokens ?? 1500,
+        temperature: 0,
+        system: [
+          {
+            type: 'text',
+            text: r.system + '\nRespond with a single JSON object and nothing else.',
+            cache_control: { type: 'ephemeral' },
+          },
+        ],
+        messages: [{ role: 'user', content: r.user }],
+      },
+    })),
+  };
+  const res = await fetch('https://api.anthropic.com/v1/messages/batches', {
+    method: 'POST',
+    headers: {
+      'x-api-key': cfg.apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Batch submit ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const j = await res.json();
+  return j.id as string;
+}
+
+/** Poll a batch; when ended, fetch + parse its JSONL results. */
+export async function getBatchResults(
+  cfg: LlmConfig,
+  externalId: string,
+): Promise<{ done: boolean; results: Array<{ customId: string; json: any }> }> {
+  const headers = { 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' };
+  const res = await fetch(
+    `https://api.anthropic.com/v1/messages/batches/${externalId}`,
+    { headers },
+  );
+  if (!res.ok) throw new Error(`Batch get ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const j = await res.json();
+  if (j.processing_status !== 'ended' || !j.results_url) {
+    return { done: false, results: [] };
+  }
+  const rres = await fetch(j.results_url, { headers });
+  if (!rres.ok) throw new Error(`Batch results ${rres.status}`);
+  const text = await rres.text();
+  const results: Array<{ customId: string; json: any }> = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let row: any;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (row?.result?.type === 'succeeded') {
+      const t = row.result.message?.content?.[0]?.text ?? '{}';
+      try {
+        results.push({ customId: row.custom_id, json: JSON.parse(stripFences(t)) });
+      } catch {
+        /* skip malformed */
+      }
+    }
+  }
+  return { done: true, results };
+}
+
 function stripFences(text: string): string {
   const t = text.trim();
   if (t.startsWith('```')) {

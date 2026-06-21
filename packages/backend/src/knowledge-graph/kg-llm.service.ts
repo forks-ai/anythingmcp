@@ -56,7 +56,32 @@ export class KgLlmService {
       throw new ConflictException('AI enrichment is disabled for this workspace.');
     }
     const cfg = resolveLlmConfig()!;
+    const built = await this.buildEnrichRequest(organizationId, opts);
+    if (!built) return { suggested: 0, model: cfg.model };
+    if ('skipped' in built) return { suggested: 0, skipped: true, model: cfg.model };
 
+    const { json, usage } = await chatJson(cfg, built.system, built.user, 1500);
+    const suggested = await this.applyEnrichResult(organizationId, json, built);
+    this.logger.log(
+      `KG LLM enrich ${organizationId}: ${suggested} suggested (${cfg.model}, in=${usage?.inputTokens ?? '?'} out=${usage?.outputTokens ?? '?'})`,
+    );
+    return { suggested, model: cfg.model, usage };
+  }
+
+  /**
+   * Pure prompt builder for enrichment — also usable for batch submission.
+   * Returns the system/user prompts plus the ref→nodeId map and content hash
+   * needed to apply the result later. `{ skipped: true }` when the graph is
+   * unchanged since the last run; `null` when there's nothing to enrich.
+   */
+  async buildEnrichRequest(
+    organizationId: string,
+    opts?: { force?: boolean },
+  ): Promise<
+    | { system: string; user: string; idByRef: Record<string, string>; hash: string }
+    | { skipped: true }
+    | null
+  > {
     const nodes = await this.prisma.kgNode.findMany({
       where: { organizationId },
       select: {
@@ -69,7 +94,7 @@ export class KgLlmService {
       orderBy: { entity: 'asc' },
       take: MAX_ENTITIES,
     });
-    if (nodes.length < 2) return { suggested: 0 };
+    if (nodes.length < 2) return null;
 
     const catalog = nodes.map((n, i) => ({
       ref: `e${i}`,
@@ -91,9 +116,7 @@ export class KgLlmService {
       where: { organizationId_key: { organizationId, key: 'kg_llm_hash' } },
       select: { value: true },
     });
-    if (!opts?.force && prev?.value === hash) {
-      return { suggested: 0, skipped: true, model: cfg.model };
-    }
+    if (!opts?.force && prev?.value === hash) return { skipped: true };
 
     const user = JSON.stringify({
       entities: catalog.map((c) => ({
@@ -104,35 +127,42 @@ export class KgLlmService {
         outputs: c.outputs,
       })),
     });
+    const idByRef: Record<string, string> = {};
+    for (const c of catalog) idByRef[c.ref] = c.id;
+    return { system: SYSTEM_PROMPT, user, idByRef, hash };
+  }
 
-    const { json, usage } = await chatJson(cfg, SYSTEM_PROMPT, user, 1500);
+  /** Apply an enrichment LLM result (sync or batch) and persist the content hash. */
+  async applyEnrichResult(
+    organizationId: string,
+    json: any,
+    ctx: { idByRef: Record<string, string>; hash: string },
+  ): Promise<number> {
     const rels: any[] = Array.isArray(json?.relationships) ? json.relationships : [];
-    const idByRef = new Map(catalog.map((c) => [c.ref, c.id]));
-
     let suggested = 0;
     for (const r of rels) {
-      let src = idByRef.get(r?.from);
-      let tgt = idByRef.get(r?.to);
+      let src = ctx.idByRef[r?.from];
+      let tgt = ctx.idByRef[r?.to];
       if (!src || !tgt || src === tgt) continue;
       const kind = r?.kind === 'same_identity' ? 'same_identity' : 'references';
       if (kind === 'same_identity' && src > tgt) [src, tgt] = [tgt, src];
       const confidence = Math.max(0, Math.min(0.9, Number(r?.confidence) || 0.5));
       const note = typeof r?.reason === 'string' ? r.reason.slice(0, 200) : null;
-      if (await this.upsertLlmEdge(organizationId, src, tgt, kind, confidence, note)) {
-        suggested++;
+      try {
+        if (await this.upsertLlmEdge(organizationId, src, tgt, kind, confidence, note)) {
+          suggested++;
+        }
+      } catch (e: any) {
+        // A node may have been deleted between submit and apply (batch path).
+        this.logger.warn(`KG LLM apply edge failed (${organizationId}): ${e.message}`);
       }
     }
-
     await this.prisma.orgSettings.upsert({
       where: { organizationId_key: { organizationId, key: 'kg_llm_hash' } },
-      create: { organizationId, key: 'kg_llm_hash', value: hash },
-      update: { value: hash },
+      create: { organizationId, key: 'kg_llm_hash', value: ctx.hash },
+      update: { value: ctx.hash },
     });
-
-    this.logger.log(
-      `KG LLM enrich ${organizationId}: ${suggested} suggested (${cfg.model}, in=${usage?.inputTokens ?? '?'} out=${usage?.outputTokens ?? '?'})`,
-    );
-    return { suggested, model: cfg.model, usage };
+    return suggested;
   }
 
   /** Create an LLM edge, or annotate an existing one without downgrading it. */

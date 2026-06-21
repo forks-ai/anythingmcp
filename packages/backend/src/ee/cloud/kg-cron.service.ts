@@ -4,6 +4,19 @@ import { KgStaticService } from '../../knowledge-graph/kg-static.service';
 import { KgObservationalService } from '../../knowledge-graph/kg-observational.service';
 import { KgLlmService } from '../../knowledge-graph/kg-llm.service';
 import { KgSkillService } from '../../knowledge-graph/kg-skill.service';
+import {
+  resolveLlmConfig,
+  submitBatch,
+  getBatchResults,
+  type BatchRequest,
+} from '../../knowledge-graph/llm-client';
+
+type LlmExtendResult = {
+  llmOrgs: number;
+  llmGraphSuggested: number;
+  llmSkillsCreated: number;
+  llmBatchSubmitted?: number;
+};
 
 function intEnv(name: string, fallback: number): number {
   const v = parseInt(process.env[name] || '', 10);
@@ -118,11 +131,19 @@ export class KgCronService {
    *    (no-op on an unchanged graph), and skill generation is skipped unless new
    *    intents arrived since the last AI run.
    */
-  private async runLlmExtend(): Promise<{
-    llmOrgs: number;
-    llmGraphSuggested: number;
-    llmSkillsCreated: number;
-  }> {
+  private async runLlmExtend(): Promise<LlmExtendResult> {
+    if (process.env.KG_LLM_CRON_ENABLED !== 'true') {
+      return { llmOrgs: 0, llmGraphSuggested: 0, llmSkillsCreated: 0 };
+    }
+    // Batch mode (Anthropic only): submit on one run, apply on a later run, at
+    // ~50% of the synchronous price. Opt-in via KG_LLM_BATCH.
+    if (process.env.KG_LLM_BATCH === 'true' && resolveLlmConfig()?.provider === 'anthropic') {
+      return this.runLlmExtendBatch();
+    }
+    return this.runLlmExtendSync();
+  }
+
+  private async runLlmExtendSync(): Promise<LlmExtendResult> {
     const empty = { llmOrgs: 0, llmGraphSuggested: 0, llmSkillsCreated: 0 };
     if (process.env.KG_LLM_CRON_ENABLED !== 'true') return empty;
 
@@ -172,6 +193,125 @@ export class KgCronService {
       );
     }
     return { llmOrgs, llmGraphSuggested, llmSkillsCreated };
+  }
+
+  /**
+   * Batch variant (Anthropic, ~50% cost). Two-phase + deferred: each run either
+   * APPLIES a previously-submitted batch that has completed, or SUBMITS a new
+   * one for the opted-in orgs. Only one batch is in flight at a time. Same
+   * gating/cost-control as the sync path (opt-in, cooldown, cap, hash/new-intent).
+   */
+  private async runLlmExtendBatch(): Promise<LlmExtendResult> {
+    const cfg = resolveLlmConfig();
+    if (!cfg) return { llmOrgs: 0, llmGraphSuggested: 0, llmSkillsCreated: 0 };
+
+    // ── APPLY phase ──
+    const pending = await this.prisma.kgLlmBatch.findFirst({
+      where: { status: 'pending' },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (pending) {
+      let graph = 0;
+      let skills = 0;
+      const orgs = new Set<string>();
+      try {
+        const { done, results } = await getBatchResults(cfg, pending.externalId);
+        if (!done) {
+          return { llmOrgs: 0, llmGraphSuggested: 0, llmSkillsCreated: 0, llmBatchSubmitted: 0 };
+        }
+        const ctx = (pending.context as Record<string, any>) || {};
+        for (const { customId, json } of results) {
+          const c = ctx[customId];
+          if (!c) continue;
+          try {
+            if (c.type === 'enrich') {
+              graph += await this.kgLlm.applyEnrichResult(c.organizationId, json, {
+                idByRef: c.idByRef,
+                hash: c.hash,
+              });
+            } else if (c.type === 'skill') {
+              skills += await this.kgSkill.applyConnectorResult(c.organizationId, json);
+            }
+            orgs.add(c.organizationId);
+          } catch (e: any) {
+            this.logger.warn(`KG LLM batch apply failed (${customId}): ${e.message}`);
+          }
+        }
+        await this.prisma.kgLlmBatch.delete({ where: { id: pending.id } });
+        this.logger.log(
+          `KG LLM batch applied: ${orgs.size} org(s), +${graph} graph, +${skills} skills.`,
+        );
+      } catch (e: any) {
+        this.logger.warn(`KG LLM batch poll failed: ${e.message}`);
+      }
+      // One batch in flight at a time — don't submit a new one this run.
+      return {
+        llmOrgs: orgs.size,
+        llmGraphSuggested: graph,
+        llmSkillsCreated: skills,
+        llmBatchSubmitted: 0,
+      };
+    }
+
+    // ── SUBMIT phase ──
+    const maxOrgs = intEnv('KG_LLM_CRON_MAX_ORGS', 20);
+    const cooldownMs = intEnv('KG_LLM_MIN_INTERVAL_HOURS', 24) * 60 * 60 * 1000;
+    const optedIn = await this.prisma.orgSettings.findMany({
+      where: { key: 'kg_llm_auto', value: 'true' },
+      select: { organizationId: true },
+    });
+
+    const requests: BatchRequest[] = [];
+    const context: Record<string, any> = {};
+    let orgsBuilt = 0;
+    for (const { organizationId } of optedIn) {
+      if (orgsBuilt >= maxOrgs) break;
+      try {
+        const last = await this.getLastRun(organizationId);
+        if (last && Date.now() - last < cooldownMs) continue;
+        if (!(await this.kgLlm.isEnabled(organizationId))) continue;
+
+        let added = false;
+        const enrichReq = await this.kgLlm.buildEnrichRequest(organizationId, { force: false });
+        if (enrichReq && !('skipped' in enrichReq)) {
+          const cid = `enrich:${organizationId}`;
+          requests.push({ customId: cid, system: enrichReq.system, user: enrichReq.user });
+          context[cid] = {
+            type: 'enrich',
+            organizationId,
+            idByRef: enrichReq.idByRef,
+            hash: enrichReq.hash,
+          };
+          added = true;
+        }
+        if (await this.hasNewIntentsSince(organizationId, last)) {
+          const skillReq = await this.kgSkill.buildConnectorRequest(organizationId);
+          if (skillReq) {
+            const cid = `skill:${organizationId}`;
+            requests.push({ customId: cid, system: skillReq.system, user: skillReq.user });
+            context[cid] = { type: 'skill', organizationId };
+            added = true;
+          }
+        }
+        // Stamp the cooldown so the next run applies results, not re-submits.
+        await this.setLastRun(organizationId, Date.now());
+        if (added) orgsBuilt++;
+      } catch (e: any) {
+        this.logger.warn(`KG LLM batch build failed for org ${organizationId}: ${e.message}`);
+      }
+    }
+
+    if (requests.length === 0) {
+      return { llmOrgs: 0, llmGraphSuggested: 0, llmSkillsCreated: 0, llmBatchSubmitted: 0 };
+    }
+    const externalId = await submitBatch(cfg, requests);
+    await this.prisma.kgLlmBatch.create({
+      data: { provider: cfg.provider, externalId, status: 'pending', context },
+    });
+    this.logger.log(
+      `KG LLM batch submitted: ${requests.length} request(s) across ${orgsBuilt} org(s) (${externalId}).`,
+    );
+    return { llmOrgs: 0, llmGraphSuggested: 0, llmSkillsCreated: 0, llmBatchSubmitted: requests.length };
   }
 
   private async getLastRun(organizationId: string): Promise<number | null> {
