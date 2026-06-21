@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { assertSafeOutboundUrl } from '../../common/ssrf.util';
 import { ParsedTool } from './openapi.parser';
+import { inferJsonSchema } from '../output-schema.util';
 
 /**
  * Postman Collection v2.1 Parser.
@@ -248,7 +249,37 @@ export class PostmanParser {
     if (Object.keys(bodyMapping).length > 0) endpointMapping.bodyMapping = bodyMapping;
     if (Object.keys(headerMapping).length > 0) endpointMapping.headers = headerMapping as Record<string, string>;
 
-    return { name, description, parameters, endpointMapping };
+    const tool: ParsedTool = { name, description, parameters, endpointMapping };
+    const outputSchema = this.extractOutputSchema(item);
+    if (outputSchema) tool.outputSchema = outputSchema;
+    return tool;
+  }
+
+  /**
+   * Infer a response schema from a saved Postman example response. Prefers a 2xx
+   * example with a JSON body; returns only object/array shapes.
+   */
+  private extractOutputSchema(item: any): Record<string, unknown> | undefined {
+    const examples = Array.isArray(item?.response) ? item.response : [];
+    if (!examples.length) return undefined;
+
+    const success =
+      examples.find((r: any) => typeof r?.code === 'number' && r.code >= 200 && r.code < 300) ??
+      examples[0];
+    const body = success?.body;
+    if (typeof body !== 'string' || !body.trim()) return undefined;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return undefined; // non-JSON example (HTML/text) — nothing structural
+    }
+    if (!parsed || typeof parsed !== 'object') return undefined;
+    const schema = inferJsonSchema(parsed) as Record<string, unknown>;
+    return schema && (schema.type === 'object' || schema.type === 'array')
+      ? schema
+      : undefined;
   }
 
   private parseUrl(url: any): { raw: string; path: string; query?: any[] } | null {

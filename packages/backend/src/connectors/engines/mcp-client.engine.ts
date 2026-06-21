@@ -115,6 +115,7 @@ export class McpClientEngine {
       name: string;
       description: string;
       inputSchema: Record<string, unknown>;
+      outputSchema?: Record<string, unknown>;
     }>
   > {
     const mcpUrl = new URL(config.mcpPath || '/mcp', config.baseUrl);
@@ -144,6 +145,9 @@ export class McpClientEngine {
           type: 'object',
           properties: {},
         },
+        ...(tool.outputSchema
+          ? { outputSchema: tool.outputSchema as Record<string, unknown> }
+          : {}),
       }));
     } finally {
       try {

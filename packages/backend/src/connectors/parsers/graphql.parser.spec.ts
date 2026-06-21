@@ -376,5 +376,30 @@ describe('GraphqlParser', () => {
       const tools = parser.parseFromSdl(sdl);
       expect(tools).toHaveLength(50);
     });
+
+    it('derives an output schema from the return object type', () => {
+      const sdl = `
+        type Query { user(id: ID!): User }
+        type User { id: ID!, name: String, customer_id: String, orders: [Order] }
+        type Order { order_id: ID! }
+      `;
+      const tools = parser.parseFromSdl(sdl);
+      const t = tools.find((x) => x.name === 'graphql_user')!;
+      expect(t.outputSchema).toBeDefined();
+      const props = (t.outputSchema as any).properties;
+      expect(Object.keys(props)).toEqual(
+        expect.arrayContaining(['id', 'name', 'customer_id', 'orders']),
+      );
+      // nested list of objects expands too
+      expect(props.orders.type).toBe('array');
+      expect(props.orders.items.properties.order_id).toBeDefined();
+    });
+
+    it('uses a primitive output schema-free shape for scalar returns', () => {
+      const sdl = `type Query { ping: String }`;
+      const tools = parser.parseFromSdl(sdl);
+      // scalar return → no object/array outputSchema attached
+      expect(tools[0].outputSchema).toBeUndefined();
+    });
   });
 });

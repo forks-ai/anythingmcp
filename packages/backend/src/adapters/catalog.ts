@@ -223,6 +223,8 @@ export interface AdapterDefinition extends AdapterMeta {
     parameters: Record<string, unknown>;
     endpointMapping: Record<string, unknown>;
     responseMapping?: Record<string, unknown>;
+    /** JSON Schema of the tool's response, served to clients + mined by the KG. */
+    outputSchema?: Record<string, unknown>;
     // Adapter author's recommendation to route this tool through the
     // proxy / web-unblocker by default (anti-bot, geo, or rate-limited
     // APIs). Default false. Seeds mcp_tools.use_proxy on import; the user
