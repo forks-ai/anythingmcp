@@ -328,6 +328,7 @@ export interface KgSettings {
   llmEnabled: boolean;
   llmAvailable: boolean;
   captureIntent: boolean;
+  autoExtend: boolean;
 }
 
 export const knowledgeGraph = {
@@ -340,7 +341,7 @@ export const knowledgeGraph = {
     request<KgSettings>('/api/knowledge-graph/settings', { token }),
   updateSettings: (
     token: string,
-    body: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean },
+    body: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean; autoExtend?: boolean },
   ) =>
     request<KgSettings>('/api/knowledge-graph/settings', { token, method: 'PUT', body }),
   enrich: (token: string) =>

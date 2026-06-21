@@ -40,7 +40,7 @@ export default function OrganizationSettingsPage() {
     knowledgeGraph.getSettings(token).then(setKg).catch(() => {});
   }, [token]);
 
-  const updateFlag = async (patch: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean }) => {
+  const updateFlag = async (patch: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean; autoExtend?: boolean }) => {
     if (!token || !kg) return;
     setKgSaving(true);
     try {
@@ -210,6 +210,17 @@ export default function OrganizationSettingsPage() {
           isAdmin={isAdmin}
           onToggle={() => updateFlag({ captureIntent: !kg?.captureIntent })}
         />
+
+        {kg?.llmAvailable && (
+          <FeatureToggle
+            label="Scheduled AI extension"
+            description="On a schedule (roughly daily), let the AI extend the graph and generate skills from the captured user intents — so your network and skills keep improving on their own. Cost-careful: it only runs every so often, skips when nothing changed, and stays off until you enable it. Requires AI enrichment + Capture user intent."
+            checked={!!kg?.autoExtend}
+            disabled={!isAdmin || kgSaving || !kg?.enabled || !kg?.llmEnabled}
+            isAdmin={isAdmin}
+            onToggle={() => updateFlag({ autoExtend: !kg?.autoExtend })}
+          />
+        )}
       </div>
 
       {/* Danger Zone — ADMIN only */}
