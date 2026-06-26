@@ -66,7 +66,7 @@ export class KgSkillService {
     const cfg = resolveLlmConfig()!;
     const built = await this.buildConnectorRequest(organizationId);
     if (!built) return { created: 0, model: cfg.model };
-    const { json, usage } = await chatJson(cfg, built.system, built.user, 1500);
+    const { json, usage } = await chatJson(cfg, built.system, built.user);
     const created = await this.applyConnectorResult(organizationId, json);
     this.logger.log(`KG skills (connectors) ${organizationId}: ${created}`);
     return { created, model: cfg.model, usage };
@@ -166,7 +166,6 @@ export class KgSkillService {
       cfg,
       SERVER_PROMPT,
       JSON.stringify({ server: server.name, connectors: connectorsContext, calls }),
-      1500,
     );
     const skills: any[] = Array.isArray(json?.skills) ? json.skills : [];
 

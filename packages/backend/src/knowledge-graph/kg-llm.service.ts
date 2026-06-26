@@ -60,7 +60,7 @@ export class KgLlmService {
     if (!built) return { suggested: 0, model: cfg.model };
     if ('skipped' in built) return { suggested: 0, skipped: true, model: cfg.model };
 
-    const { json, usage } = await chatJson(cfg, built.system, built.user, 1500);
+    const { json, usage } = await chatJson(cfg, built.system, built.user);
     const suggested = await this.applyEnrichResult(organizationId, json, built);
     this.logger.log(
       `KG LLM enrich ${organizationId}: ${suggested} suggested (${cfg.model}, in=${usage?.inputTokens ?? '?'} out=${usage?.outputTokens ?? '?'})`,

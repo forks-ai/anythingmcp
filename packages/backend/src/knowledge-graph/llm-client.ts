@@ -32,12 +32,20 @@ export interface LlmResult {
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
+/**
+ * Output-token ceiling for a single enrichment / skill pass. The graph is
+ * capped at MAX_ENTITIES (120) and a dense graph can emit dozens of relations,
+ * so a verbose model needs headroom: at 1500 the JSON gets truncated mid-array
+ * and the whole pass fails to parse. ~3K is the observed worst case on Haiku.
+ */
+export const KG_LLM_MAX_OUTPUT_TOKENS = 4000;
+
 /** Call the model and parse its reply as JSON. Throws on transport/parse error. */
 export async function chatJson(
   cfg: LlmConfig,
   system: string,
   user: string,
-  maxTokens = 1500,
+  maxTokens = KG_LLM_MAX_OUTPUT_TOKENS,
 ): Promise<LlmResult> {
   if (cfg.provider === 'anthropic') {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -125,7 +133,7 @@ export async function submitBatch(
       custom_id: r.customId,
       params: {
         model: cfg.model,
-        max_tokens: r.maxTokens ?? 1500,
+        max_tokens: r.maxTokens ?? KG_LLM_MAX_OUTPUT_TOKENS,
         temperature: 0,
         system: [
           {
