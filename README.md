@@ -39,6 +39,7 @@ https://github.com/user-attachments/assets/2ae92f90-7012-4c00-8836-bae5a6422ca6
 
 - [Get started in 60 seconds](#get-started-in-60-seconds)
 - [Key features](#key-features)
+- [Knowledge Graph &amp; AI skills](#knowledge-graph--ai-skills)
 - [Build custom Claude connectors — no code](#build-custom-claude-connectors--no-code)
 - [Turn your API into a ChatGPT app](#turn-your-api-into-a-chatgpt-app)
 - [Why AnythingMCP](#why-anythingmcp)
@@ -91,11 +92,40 @@ The interactive setup handles everything: deployment mode, domain & HTTPS (autom
 - **175+ pre-built adapters** — logistics, ERP, HR, e-commerce, payments, public data — [see catalog](#pre-configured-mcp-connectors)
 - **Visual tool editor** — map parameters to path, query, body, headers; rename and describe tools for the AI
 - **Dynamic MCP server** — tools registered at runtime, no restart
+- **[Knowledge Graph &amp; AI skills](docs/knowledge-graph.md)** — a per-workspace, PII-safe map of how your connectors' data relates, served to the agent via an MCP tool, plus reusable AI skills composed into the server's instructions (optional, opt-in)
 - **Full auth** — OAuth2 (PKCE + Client Credentials), Bearer, API Key, Basic, WS-Security, client certificates, [LOGIN_TOKEN](docs/connectors/login-token-auth.md) and OAuth 1.0a handshakes
 - **Audit logging** — every tool call logged with input, output, duration, status
 - **Roles &amp; access control** — tool-level whitelisting per custom role, per-user MCP API keys
 - **Environment variables** — per-connector `{{VAR}}` interpolation, hidden from the AI
 - **Docker ready** — `docker compose up` and you're running
+
+---
+
+## Knowledge Graph &amp; AI skills
+
+Beyond exposing tools, AnythingMCP can map **how the data in your connectors
+relates** — and feed that context back to the AI client so it chains tools
+correctly across systems.
+
+- **Knowledge Graph** — a per-workspace map of *entities* (customers, orders,
+  products…) and their *relationships*, built automatically from tool names,
+  parameters and the input/output of real calls, and fully editable by hand. It
+  stays **PII-safe**: it stores entity/field *names* and relationship metadata,
+  never the values.
+- **Served over MCP** — each server exposes a `kg_how_to_obtain` tool so the
+  *customer's* agent can ask "how do I get this?" and receive chaining hints
+  across connectors.
+- **AI skills** — reusable business rules captured from how the tools are
+  actually used (e.g. *"today's revenue includes order statuses 2, 3 and 4"*),
+  reviewed by a human, then composed into the MCP server's **instructions** — so
+  they guide the agent **without adding any extra tool calls**.
+
+The AI passes (graph enrichment, skill generation, scheduled extension) work
+with OpenAI, OpenRouter or Anthropic and are **off by default** — opt-in with a
+global env flag *and* a per-workspace switch. The graph, manual editing and the
+MCP tool work with no LLM key at all.
+
+➡️ **[Knowledge Graph &amp; AI skills guide →](docs/knowledge-graph.md)**
 
 ---
 
