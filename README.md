@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Turn any API, database or MCP server into custom connectors for Claude, ChatGPT and more — no code.</strong><br/>
-  The self-hosted MCP gateway that converts REST, SOAP/WSDL, GraphQL, SQL/NoSQL databases and other MCP servers into AI tools, with auth and full audit.
+  The self-hosted, <strong>AI-empowered MCP gateway</strong> that converts REST, SOAP/WSDL, GraphQL, SQL/NoSQL databases and other MCP servers into AI tools — then learns how their data connects and teaches your agents to use them, with auth and full audit.
 </p>
 
 <p align="center">
@@ -24,9 +24,11 @@
   <a href="https://anythingmcp.com/guides"><strong>Setup guides →</strong></a>
 </p>
 
-**AnythingMCP** is a self-hosted, open-source **MCP gateway** and **MCP server** that turns the systems you already run into [Model Context Protocol](https://modelcontextprotocol.io/) tools — **REST and SOAP APIs, GraphQL, SQL & NoSQL databases, and even other MCP servers**. Import a spec or point it at a database, and expose it as a **custom connector** to **Claude**, **ChatGPT**, **Gemini**, **Copilot**, **Cursor** and any MCP-compatible client. No SDK, no code changes — point, configure, connect.
+**AnythingMCP** is a self-hosted, open-source **smart, AI-empowered MCP gateway** and **MCP server** that turns the systems you already run into [Model Context Protocol](https://modelcontextprotocol.io/) tools — **REST and SOAP APIs, GraphQL, SQL & NoSQL databases, and even other MCP servers**. Import a spec or point it at a database, and expose it as a **custom connector** to **Claude**, **ChatGPT**, **Gemini**, **Copilot**, **Cursor** and any MCP-compatible client. No SDK, no code changes — point, configure, connect.
 
 It ships with **175+ ready-to-use adapters** — including **Deutsche Bahn**, **weclapp ERP**, **Etsy**, **Shopware**, **DHL** and **Sendcloud** — so the most common integrations work in one click, while the visual editor and import tools (OpenAPI/Swagger, Postman, cURL, WSDL, GraphQL) let you wrap any other API or database in minutes.
+
+What makes it **smart**, not just a pipe: AnythingMCP builds a per-workspace **Knowledge Graph** of how your connectors' data relates, serves it back to the agent over MCP so it chains tools correctly across systems, and turns how your tools are actually used into reusable **AI skills**. A plain gateway forwards calls; AnythingMCP gives your agents the context to use them well. *(All AI features are optional and opt-in — the gateway works fully without them.)*
 
 https://github.com/user-attachments/assets/2ae92f90-7012-4c00-8836-bae5a6422ca6
 
@@ -108,17 +110,24 @@ relates** — and feed that context back to the AI client so it chains tools
 correctly across systems.
 
 - **Knowledge Graph** — a per-workspace map of *entities* (customers, orders,
-  products…) and their *relationships*, built automatically from tool names,
-  parameters and the input/output of real calls, and fully editable by hand. It
-  stays **PII-safe**: it stores entity/field *names* and relationship metadata,
-  never the values.
+  products…) and their *relationships*. It builds itself from tool names,
+  parameters and the input/output of real calls; an optional AI pass infers the
+  cross-connector links heuristics miss. It stays **PII-safe**: it stores
+  entity/field *names* and relationship metadata, never the values.
+- **Build it visually** — a graph editor lets you **create, edit and delete
+  entities and connections** by hand, add descriptions, and curate what the AI
+  proposed. Zoom/fit controls, connectivity-based layout and hover focus make a
+  large graph navigable.
 - **Served over MCP** — each server exposes a `kg_how_to_obtain` tool so the
   *customer's* agent can ask "how do I get this?" and receive chaining hints
   across connectors.
 - **AI skills** — reusable business rules captured from how the tools are
   actually used (e.g. *"today's revenue includes order statuses 2, 3 and 4"*),
   reviewed by a human, then composed into the MCP server's **instructions** — so
-  they guide the agent **without adding any extra tool calls**.
+  they guide the agent **without adding any extra tool calls**. Search, status
+  tabs and pagination keep them manageable at scale; optional **auto-apply** for
+  high-confidence skills and an AI **"consolidate"** action merges overlapping
+  ones into fewer rules.
 
 The AI passes (graph enrichment, skill generation, scheduled extension) work
 with OpenAI, OpenRouter or Anthropic and are **off by default** — opt-in with a
