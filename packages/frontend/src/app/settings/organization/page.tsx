@@ -40,7 +40,7 @@ export default function OrganizationSettingsPage() {
     knowledgeGraph.getSettings(token).then(setKg).catch(() => {});
   }, [token]);
 
-  const updateFlag = async (patch: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean; autoExtend?: boolean }) => {
+  const updateFlag = async (patch: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean; autoExtend?: boolean; skillAutoApply?: boolean }) => {
     if (!token || !kg) return;
     setKgSaving(true);
     try {
@@ -219,6 +219,17 @@ export default function OrganizationSettingsPage() {
             disabled={!isAdmin || kgSaving || !kg?.enabled || !kg?.llmEnabled}
             isAdmin={isAdmin}
             onToggle={() => updateFlag({ autoExtend: !kg?.autoExtend })}
+          />
+        )}
+
+        {kg?.llmAvailable && (
+          <FeatureToggle
+            label="Auto-apply high-confidence skills"
+            description="When AI generates a skill it is confident about (≥ 0.90), apply it automatically instead of leaving it as a suggestion to review. Lower-confidence skills still wait for manual approval."
+            checked={!!kg?.skillAutoApply}
+            disabled={!isAdmin || kgSaving || !kg?.enabled || !kg?.llmEnabled}
+            isAdmin={isAdmin}
+            onToggle={() => updateFlag({ skillAutoApply: !kg?.skillAutoApply })}
           />
         )}
       </div>

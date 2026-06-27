@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -66,9 +67,20 @@ export class KgController {
 
   @Get('skills')
   @Roles('ADMIN', 'EDITOR')
-  @ApiOperation({ summary: 'List skill suggestions inferred from captured intents' })
-  async listSkills(@Req() req: any) {
-    return this.skills.list(req.user.organizationId);
+  @ApiOperation({ summary: 'List skill suggestions (filterable + paginated) with per-status counts' })
+  async listSkills(
+    @Req() req: any,
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('take') take?: string,
+    @Query('skip') skip?: string,
+  ) {
+    return this.skills.list(req.user.organizationId, {
+      status,
+      q,
+      take: take ? parseInt(take, 10) : undefined,
+      skip: skip ? parseInt(skip, 10) : undefined,
+    });
   }
 
   @Post('skills')
@@ -97,6 +109,15 @@ export class KgController {
   })
   async generateSkills(@Req() req: any, @Body() body: { mcpServerId?: string }) {
     return this.skills.generate(req.user.organizationId, { mcpServerId: body?.mcpServerId });
+  }
+
+  @Post('skills/consolidate')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Merge the active skills in a scope into the fewest non-redundant ones (AI)',
+  })
+  async consolidateSkills(@Req() req: any, @Body() body: { mcpServerId?: string }) {
+    return this.skills.consolidate(req.user.organizationId, { mcpServerId: body?.mcpServerId });
   }
 
   @Post('skills/:id/apply')

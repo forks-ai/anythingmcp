@@ -329,6 +329,15 @@ export interface KgSettings {
   llmAvailable: boolean;
   captureIntent: boolean;
   autoExtend: boolean;
+  skillAutoApply: boolean;
+}
+
+export interface KgSkillList {
+  items: KgSkill[];
+  total: number;
+  counts: { pending: number; applied: number; dismissed: number };
+  take: number;
+  skip: number;
 }
 
 export const knowledgeGraph = {
@@ -341,7 +350,13 @@ export const knowledgeGraph = {
     request<KgSettings>('/api/knowledge-graph/settings', { token }),
   updateSettings: (
     token: string,
-    body: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean; autoExtend?: boolean },
+    body: {
+      enabled?: boolean;
+      llmEnabled?: boolean;
+      captureIntent?: boolean;
+      autoExtend?: boolean;
+      skillAutoApply?: boolean;
+    },
   ) =>
     request<KgSettings>('/api/knowledge-graph/settings', { token, method: 'PUT', body }),
   enrich: (token: string) =>
@@ -397,7 +412,23 @@ export const knowledgeGraph = {
   deleteNode: (token: string, id: string) =>
     request<{ ok: boolean }>(`/api/knowledge-graph/nodes/${id}`, { token, method: 'DELETE' }),
   skills: {
-    list: (token: string) => request<KgSkill[]>('/api/knowledge-graph/skills', { token }),
+    list: (
+      token: string,
+      params?: { status?: string; q?: string; take?: number; skip?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set('status', params.status);
+      if (params?.q) qs.set('q', params.q);
+      if (params?.take != null) qs.set('take', String(params.take));
+      if (params?.skip != null) qs.set('skip', String(params.skip));
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return request<KgSkillList>(`/api/knowledge-graph/skills${suffix}`, { token });
+    },
+    consolidate: (token: string, mcpServerId?: string) =>
+      request<{ before: number; after: number; model?: string }>(
+        '/api/knowledge-graph/skills/consolidate',
+        { token, method: 'POST', body: mcpServerId ? { mcpServerId } : {} },
+      ),
     create: (
       token: string,
       body: {

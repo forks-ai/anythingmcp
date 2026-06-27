@@ -56,11 +56,12 @@ export class KgService {
   }
 
   async getSettings(organizationId: string) {
-    const [enabled, llmEnabled, captureIntent, autoExtend] = await Promise.all([
+    const [enabled, llmEnabled, captureIntent, autoExtend, skillAutoApply] = await Promise.all([
       this.staticSvc.isEnabled(organizationId),
       this.staticSvc.getFlag(organizationId, 'kg_llm_enabled', false),
       this.staticSvc.getFlag(organizationId, 'kg_capture_intent', false),
       this.staticSvc.getFlag(organizationId, 'kg_llm_auto', false),
+      this.staticSvc.getFlag(organizationId, 'kg_skill_auto_apply', false),
     ]);
     return {
       enabled,
@@ -69,6 +70,8 @@ export class KgService {
       captureIntent,
       // Scheduled AI extension of graph + skills from captured intents.
       autoExtend,
+      // Auto-apply generated skills at/above the confidence threshold.
+      skillAutoApply,
     };
   }
 
@@ -79,6 +82,7 @@ export class KgService {
       llmEnabled?: boolean;
       captureIntent?: boolean;
       autoExtend?: boolean;
+      skillAutoApply?: boolean;
     },
   ) {
     if (typeof body.enabled === 'boolean') {
@@ -92,6 +96,9 @@ export class KgService {
     }
     if (typeof body.autoExtend === 'boolean') {
       await this.staticSvc.setFlag(organizationId, 'kg_llm_auto', body.autoExtend);
+    }
+    if (typeof body.skillAutoApply === 'boolean') {
+      await this.staticSvc.setFlag(organizationId, 'kg_skill_auto_apply', body.skillAutoApply);
     }
     return this.getSettings(organizationId);
   }
