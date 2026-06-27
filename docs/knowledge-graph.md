@@ -93,9 +93,21 @@ whole MCP server.
 2. **Suggest.** An AI pass over the captured intents proposes skills (title,
    *when to use*, *instruction*), scoped per connector or per server.
 3. **Review.** On the **Skills** page each suggestion has **Apply / Edit /
-   Dismiss / Delete**. You can also create a skill by hand (**+ New skill**).
+   Dismiss / Delete**. The list has status tabs with counts (All / Suggested /
+   Active / Dismissed), a search box and pagination, so it stays usable with
+   dozens of skills. You can also create a skill by hand (**+ New skill**).
 4. **Serve.** *Applied* skills are composed into the MCP server's **instructions**
    at serve time — see below.
+
+**Managing skills at scale:**
+
+- **Auto-apply (optional).** Turn on *Auto-apply high-confidence skills*
+  (Settings → Features) and generated skills at/above **0.90** confidence are
+  applied automatically; lower-confidence ones still wait for review.
+- **Consolidate with AI.** The *Consolidate with AI* button merges a scope's
+  **active** skills into the fewest non-redundant ones (same connector/server
+  target selector as Generate). Pending and dismissed skills are left untouched,
+  and a bad/empty model reply never wipes live skills.
 
 ### Skills are instructions, not extra tools
 
@@ -108,12 +120,11 @@ whole MCP server.
 Because composition is dynamic, editing or deleting a skill takes effect on the
 next request — there's no blob to clean up.
 
-> **Scaling note.** Today the Skills page lists every suggestion without
-> pagination, and applied skills are concatenated verbatim. With dozens of
-> skills the instruction block grows and consumes context on every session —
-> scope skills to the right server/connector, dismiss duplicates, and keep the
-> applied set tight. (Pagination, an auto-apply-by-confidence mode, and an
-> AI "consolidate skills" action are on the roadmap.)
+> **Scaling note.** Applied skills are concatenated verbatim into the server's
+> instruction block, so with many active skills that block grows and consumes
+> context on every session. Keep the applied set tight: scope skills to the
+> right server/connector, dismiss duplicates, and use **Consolidate with AI** to
+> merge overlapping active skills into fewer rules.
 
 ---
 
