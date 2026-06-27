@@ -303,7 +303,7 @@ export default function KnowledgeGraphPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
           {/* Graph canvas */}
-          <div className="border border-[var(--border)] rounded-lg bg-white overflow-hidden h-[68vh]">
+          <div className="border border-[var(--border)] rounded-lg bg-[var(--background)] overflow-hidden h-[68vh]">
             {loading ? (
               <div className="h-full flex items-center justify-center text-[var(--muted-foreground)]">
                 Loading graph…
@@ -326,6 +326,7 @@ export default function KnowledgeGraphPage() {
                 nodes={nodes}
                 edges={visibleEdges}
                 selectedNodeId={selectedNodeId}
+                selectedEdgeId={selectedEdgeId}
                 onSelectNode={(id) => {
                   setSelectedNodeId(id);
                   setSelectedEdgeId(null);
