@@ -463,4 +463,88 @@ describe('RestEngine', () => {
       expect(mockedAxios).toHaveBeenCalledTimes(3);
     });
   });
+
+  describe('form body encoding (nested objects / arrays)', () => {
+    it('encodes a nested object form-urlencoded param with PHP bracket notation', async () => {
+      mockedAxios.mockResolvedValue({ data: {} });
+
+      await engine.execute(
+        { baseUrl: 'https://example.bitrix24.com/rest/1/token', authType: 'NONE' },
+        {
+          method: 'POST',
+          path: '/crm.deal.add',
+          bodyEncoding: 'form-urlencoded',
+          bodyMapping: { fields: '$fields' },
+        },
+        { fields: { TITLE: 'Budget', STAGE_ID: 'NEW' } },
+      );
+
+      const sent = mockedAxios.mock.calls[0][0] as unknown as {
+        data: string;
+        headers: Record<string, string>;
+      };
+      const decoded = decodeURIComponent(sent.data);
+      expect(decoded).toContain('fields[TITLE]=Budget');
+      expect(decoded).toContain('fields[STAGE_ID]=NEW');
+      // Regression: a nested object must never collapse to "[object Object]".
+      expect(sent.data).not.toContain('object+Object');
+      expect(decoded).not.toContain('[object Object]');
+      expect(sent.headers['Content-Type']).toBe(
+        'application/x-www-form-urlencoded',
+      );
+    });
+
+    it('encodes an array form-urlencoded param as indexed brackets', async () => {
+      mockedAxios.mockResolvedValue({ data: {} });
+
+      await engine.execute(
+        { baseUrl: 'https://example.bitrix24.com/rest/1/token', authType: 'NONE' },
+        {
+          method: 'POST',
+          path: '/crm.deal.list',
+          bodyEncoding: 'form-urlencoded',
+          bodyMapping: { select: '$select' },
+        },
+        { select: ['ID', 'TITLE'] },
+      );
+
+      const decoded = decodeURIComponent(
+        (mockedAxios.mock.calls[0][0] as unknown as { data: string }).data,
+      );
+      expect(decoded).toContain('select[0]=ID');
+      expect(decoded).toContain('select[1]=TITLE');
+    });
+  });
+
+  describe('baseUrl / path joining', () => {
+    it('joins a trailing-slash baseUrl and leading-slash path with one slash', async () => {
+      mockedAxios.mockResolvedValue({ data: {} });
+
+      await engine.execute(
+        { baseUrl: 'https://api.na1.insightly.com/v3.1/', authType: 'NONE' },
+        { method: 'GET', path: '/Users/me' },
+        {},
+      );
+
+      expect(mockedAxios).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'https://api.na1.insightly.com/v3.1/Users/me',
+        }),
+      );
+    });
+
+    it('inserts a slash when neither baseUrl nor path provides one', async () => {
+      mockedAxios.mockResolvedValue({ data: {} });
+
+      await engine.execute(
+        { baseUrl: 'https://api.example.com/v1', authType: 'NONE' },
+        { method: 'GET', path: 'users' },
+        {},
+      );
+
+      expect(mockedAxios).toHaveBeenCalledWith(
+        expect.objectContaining({ url: 'https://api.example.com/v1/users' }),
+      );
+    });
+  });
 });
