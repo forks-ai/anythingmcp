@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { connectors, tools } from '@/lib/api';
+import { findDemoByTool } from '@/lib/demo-connectors';
 import { NavBar } from '@/components/nav-bar';
 import { Footer } from '@/components/footer';
 import { ToolEditor } from '@/components/tool-editor';
@@ -294,12 +295,13 @@ export default function ConnectorDetailPage() {
     }
   };
 
-  const handleTestTool = async (toolId: string) => {
+  const handleTestTool = async (toolId: string, paramsOverride?: unknown) => {
     if (!token) return;
     setTestRunning(true);
     setToolTestResult(null);
     try {
-      const params = JSON.parse(testParams);
+      const params =
+        paramsOverride !== undefined ? paramsOverride : JSON.parse(testParams);
       const result = await tools.test(id, toolId, params, token);
       setToolTestResult(result);
     } catch (err: any) {
@@ -308,6 +310,27 @@ export default function ConnectorDetailPage() {
       setTestRunning(false);
     }
   };
+
+  // Onboarding demo auto-run: arriving from /welcome with ?demoTool&autorun=1,
+  // open that tool's playground and fire a real call immediately so the user's
+  // very first action produces a successful result.
+  const demoRan = useRef(false);
+  useEffect(() => {
+    if (demoRan.current) return;
+    if (!token || !toolList.length) return;
+    const demoTool = searchParams.get('demoTool');
+    if (!demoTool || searchParams.get('autorun') !== '1') return;
+    const tool = toolList.find((t: any) => t.name === demoTool);
+    if (!tool) return;
+    demoRan.current = true;
+    const params = findDemoByTool(demoTool)?.params ?? {};
+    setTestingToolId(tool.id);
+    setTestParams(JSON.stringify(params, null, 2));
+    setMsg('Running your first tool call…');
+    void handleTestTool(tool.id, params);
+    window.history.replaceState({}, '', `/connectors/${id}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolList, token, searchParams, id]);
 
   const handleCreateTool = async (data: {
     name: string;

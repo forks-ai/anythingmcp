@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { adapters, users } from '@/lib/api';
 import { LogoIcon } from '@/components/nav-bar';
+import { DEMO_CONNECTORS, type DemoConnector } from '@/lib/demo-connectors';
 
 // A small, curated subset of slugs known to actually work end-to-end
 // today, ordered by popularity from the production analytics
@@ -29,6 +30,28 @@ export default function WelcomePage() {
   const router = useRouter();
   const [starters, setStarters] = useState<any[]>([]);
   const [skipping, setSkipping] = useState(false);
+  const [demoLoading, setDemoLoading] = useState<string | null>(null);
+  const [demoError, setDemoError] = useState('');
+
+  // One-click demo: install a no-auth connector and jump straight to the
+  // connector page with ?autorun so the user sees a real successful tool
+  // call as their first action — the "aha moment" before any credentials.
+  const startDemo = async (d: DemoConnector) => {
+    if (!token || demoLoading) return;
+    setDemoError('');
+    setDemoLoading(d.slug);
+    try {
+      const res = await adapters.import(d.slug, token);
+      router.push(
+        `/connectors/${res.connectorId}?demoTool=${encodeURIComponent(d.tool)}&autorun=1&from=welcome`,
+      );
+    } catch (err: any) {
+      setDemoError(
+        `Couldn't start the ${d.name} demo${err?.message ? `: ${err.message}` : ''}. Try another or browse the marketplace.`,
+      );
+      setDemoLoading(null);
+    }
+  };
 
   useEffect(() => {
     // Bounce to /login if the user landed here unauthenticated.
@@ -104,6 +127,42 @@ export default function WelcomePage() {
             Pick a starter from the marketplace or paste your own OpenAPI
             spec — should take about a minute.
           </p>
+        </div>
+
+        {/* Try-instantly rail — no credentials, auto-runs a real call.
+            This is the fastest path to a first successful tool result, so
+            it sits above the marketplace/custom choices. */}
+        <div className="mb-8">
+          <h3 className="text-sm font-semibold mb-1">
+            Try one instantly — no keys, no setup
+          </h3>
+          <p className="text-xs text-[var(--muted-foreground)] mb-3">
+            We&apos;ll install it and run a real call so you can see a live result in seconds.
+          </p>
+          {demoError && (
+            <div className="mb-3 p-2 rounded-md text-xs border bg-[var(--destructive-bg)] text-[var(--destructive-text)] border-[var(--destructive-border)]">
+              {demoError}
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {DEMO_CONNECTORS.map((d) => (
+              <button
+                key={d.slug}
+                onClick={() => startDemo(d)}
+                disabled={!!demoLoading}
+                className="text-left border border-[var(--border)] rounded-xl p-4 bg-[var(--card)] hover:border-[var(--brand)] hover:bg-[var(--brand-light)] transition-colors disabled:opacity-60"
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xl">{d.emoji}</span>
+                  <span className="font-semibold text-sm">{d.name}</span>
+                </div>
+                <p className="text-xs text-[var(--muted-foreground)] mb-3">{d.blurb}</p>
+                <span className="text-sm font-medium text-[var(--brand)]">
+                  {demoLoading === d.slug ? 'Starting…' : 'Try it →'}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Two big paths — marketplace vs custom */}
