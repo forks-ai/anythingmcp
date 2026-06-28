@@ -14,13 +14,12 @@ type JsonSchema = Record<string, any>;
 
 const MAX_DEPTH = 6;
 
-/**
- * Property names that must never be written from a remote value: assigning to
- * `obj['__proto__']` (etc.) pollutes the prototype. The inferred schema is built
- * from upstream API responses, which are untrusted, so we drop these keys.
- */
-const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-const isUnsafeKey = (k: string): boolean => UNSAFE_KEYS.has(k);
+// Property names that must never be written from a remote value: assigning to
+// `obj['__proto__']` (etc.) pollutes the prototype. The inferred schema is built
+// from upstream API responses, which are untrusted. Guarded at each write with a
+// direct `=== '__proto__' || …` comparison (the form static analysis recognizes
+// as a sanitizer), and the accumulators use `Object.create(null)` so there is no
+// prototype to pollute even if a guard were ever missed.
 
 /** Infer a JSON Schema from a sample value (objects/arrays/primitives). */
 export function inferJsonSchema(value: unknown, depth = 0): JsonSchema | null {
@@ -38,9 +37,9 @@ export function inferJsonSchema(value: unknown, depth = 0): JsonSchema | null {
   }
 
   if (typeof value === 'object') {
-    const properties: Record<string, JsonSchema> = {};
+    const properties: Record<string, JsonSchema> = Object.create(null);
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (isUnsafeKey(k)) continue; // prototype-pollution guard (remote keys)
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
       const s = inferJsonSchema(v, depth + 1);
       if (s) properties[k] = s;
       else properties[k] = {}; // null/unknown leaf
@@ -58,10 +57,13 @@ export function mergeSchema(a: JsonSchema | null, b: JsonSchema | null): JsonSch
   if (!a) return b ?? {};
   if (!b) return a;
   if (a.type === 'object' && b.type === 'object') {
-    const properties = { ...(a.properties ?? {}) };
+    const properties: Record<string, JsonSchema> = Object.assign(
+      Object.create(null),
+      a.properties ?? {},
+    );
     for (const [k, v] of Object.entries(b.properties ?? {})) {
-      if (isUnsafeKey(k)) continue; // prototype-pollution guard (remote keys)
-      properties[k] = properties[k] ? mergeSchema(properties[k], v as JsonSchema) : v;
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+      properties[k] = properties[k] ? mergeSchema(properties[k], v as JsonSchema) : (v as JsonSchema);
     }
     return { type: 'object', properties, additionalProperties: true };
   }
@@ -85,9 +87,9 @@ export function outputSchemaToZodShape(
   }
   const keys = Object.keys(s.properties);
   if (keys.length === 0) return null;
-  const shape: Record<string, z.ZodTypeAny> = {};
+  const shape: Record<string, z.ZodTypeAny> = Object.create(null);
   for (const k of keys) {
-    if (isUnsafeKey(k)) continue; // prototype-pollution guard (remote keys)
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
     shape[k] = z.any();
   }
   return shape;
