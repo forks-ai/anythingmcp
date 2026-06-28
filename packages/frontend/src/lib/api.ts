@@ -292,7 +292,28 @@ export const audit = {
       successRate: number;
       avgDuration: number;
     }>('/api/audit/analytics', { token }),
+  breakdowns: (token: string, days = 30) =>
+    request<AuditBreakdowns>(`/api/audit/breakdowns?days=${days}`, { token }),
 };
+
+export interface BreakdownRow {
+  id: string | null;
+  label: string;
+  count: number;
+  errors: number;
+}
+
+export interface AuditBreakdowns {
+  days: number;
+  total: number;
+  errors: number;
+  proxyCalls: number;
+  estCostMicros: number;
+  rates: { callMicros: number; proxyCallMicros: number };
+  byConnector: BreakdownRow[];
+  byServer: BreakdownRow[];
+  byUser: BreakdownRow[];
+}
 
 // Knowledge Graph
 export interface KgNode {

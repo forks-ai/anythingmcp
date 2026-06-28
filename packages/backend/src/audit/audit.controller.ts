@@ -52,4 +52,20 @@ export class AuditController {
   async getAnalytics(@Req() req: any) {
     return this.auditService.getAnalytics(req.user.organizationId);
   }
+
+  @Get('breakdowns')
+  @ApiOperation({
+    summary: 'Usage & cost breakdowns by connector / MCP server / user',
+    description:
+      'Aggregates the last N days (default 30) of tool calls per connector, per ' +
+      'MCP server and per user, with error counts, proxy-call metering and a ' +
+      'volume-based cost estimate.',
+  })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  async getBreakdowns(@Req() req: any, @Query('days') days?: string) {
+    return this.auditService.getBreakdowns(
+      req.user.organizationId,
+      days ? parseInt(days, 10) : 30,
+    );
+  }
 }
