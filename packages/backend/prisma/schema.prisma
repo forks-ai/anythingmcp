@@ -107,6 +107,12 @@ model User {
   onboardingReminderCount  Int       @default(0) @map("onboarding_reminder_count")
   emailMarketingOptOut     Boolean   @default(false) @map("email_marketing_opt_out")
 
+  // Activation milestone: stamped the first time this user records a
+  // SUCCESS tool invocation. null = signed up / built a connector but has
+  // never seen a working call — the cohort the activation drip targets.
+  firstSuccessfulInvocationAt DateTime? @map("first_successful_invocation_at")
+  activationReminderAt        DateTime? @map("activation_reminder_at")
+
   // MCP tool governance — optional custom role for tool access control
   mcpRoleId String? @map("mcp_role_id")
   mcpRole   Role?   @relation(fields: [mcpRoleId], references: [id], onDelete: SetNull)

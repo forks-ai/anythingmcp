@@ -56,6 +56,12 @@ export class AuditService {
           clientInfo: data.clientInfo,
         },
       });
+      // Activation milestone: stamp the user's first successful call. The
+      // conditional where makes this a no-op after the first success, so it
+      // stays cheap on the hot path and never overwrites the original time.
+      if (data.status === 'SUCCESS' && resolvedUserId) {
+        await this.stampFirstSuccess(resolvedUserId);
+      }
     } catch (error: any) {
       // FK violation should be impossible after resolveUserId, but
       // keep the safety net: if it still trips, retry without user_id
@@ -131,6 +137,25 @@ export class AuditService {
 
     this.emailToIdCache.set(key, byEmail.id);
     return byEmail.id;
+  }
+
+  /**
+   * Record the user's first successful tool invocation. `updateMany` with a
+   * `firstSuccessfulInvocationAt: null` guard updates exactly zero rows once
+   * the milestone is set, so this is a single cheap indexed write that runs
+   * harmlessly on every success. Best-effort: never let it break logging.
+   */
+  private async stampFirstSuccess(userId: string): Promise<void> {
+    try {
+      await this.prisma.user.updateMany({
+        where: { id: userId, firstSuccessfulInvocationAt: null },
+        data: { firstSuccessfulInvocationAt: new Date() },
+      });
+    } catch (error: any) {
+      this.logger.debug(
+        `Could not stamp first-success for user ${userId}: ${error.message}`,
+      );
+    }
   }
 
   private orgScope(organizationId?: string): any {
