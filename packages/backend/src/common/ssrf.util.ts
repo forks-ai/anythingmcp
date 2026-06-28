@@ -160,7 +160,28 @@ export async function assertSafeOutboundUrl(
     );
   }
 
-  const hostname = parsed.hostname;
+  await assertSafeOutboundHost(parsed.hostname, env);
+}
+
+/**
+ * Protocol-agnostic SSRF guard for a bare hostname / IP literal. Same policy and
+ * checks as {@link assertSafeOutboundUrl} (env + DB allowlists, literal-IP check,
+ * loopback/local block, DNS resolution against blocked ranges) — but without the
+ * http(s) URL assumption, so it also guards non-HTTP outbound connections such as
+ * database drivers (Postgres, MySQL, MSSQL, Oracle, MongoDB).
+ *
+ * Returns silently when the host is permitted.
+ */
+export async function assertSafeOutboundHost(
+  hostname: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const policy = readPolicy(env);
+  if (!policy.enabled) return;
+
+  if (!hostname) {
+    throw new SsrfBlockedError('SSRF guard: empty hostname');
+  }
 
   // Env-driven allowlist (synchronous).
   if (hostMatchesAllowlist(hostname, policy.allowedHosts)) return;

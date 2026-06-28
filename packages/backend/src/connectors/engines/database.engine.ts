@@ -5,6 +5,7 @@ import { MongoClient } from 'mongodb';
 import * as mysql from 'mysql2/promise';
 import * as oracledb from 'oracledb';
 import Database from 'better-sqlite3';
+import { assertSafeOutboundHost } from '../../common/ssrf.util';
 
 @Injectable()
 export class DatabaseEngine {
@@ -34,6 +35,10 @@ export class DatabaseEngine {
     if (endpointMapping.method === 'static' && endpointMapping.staticResponse) {
       return { text: endpointMapping.staticResponse };
     }
+
+    // SSRF guard: a connector's connection string is user-supplied, so block it
+    // from reaching internal/metadata hosts before any driver opens a socket.
+    await this.assertSafeDbHost(config.baseUrl);
 
     // MongoDB schema introspection
     if (endpointMapping.method === 'mongo_schema' && this.isMongodb(config.baseUrl)) {
@@ -111,6 +116,7 @@ export class DatabaseEngine {
     authType: string;
     authConfig?: Record<string, unknown>;
   }): Promise<void> {
+    await this.assertSafeDbHost(config.baseUrl);
     if (this.isMongodb(config.baseUrl)) {
       const client = new MongoClient(config.baseUrl, {
         serverSelectionTimeoutMS: 10000,
@@ -577,6 +583,50 @@ export class DatabaseEngine {
   /* ------------------------------------------------------------------ */
   /*  Shared helpers                                                     */
   /* ------------------------------------------------------------------ */
+
+  /**
+   * SSRF guard for a database connection string. SQLite is a local file (no
+   * network host) so it's skipped here. Every other engine resolves one or more
+   * hosts that must pass the same outbound policy as REST/SOAP/GraphQL — so a
+   * connector can't be pointed at cloud metadata, loopback, or internal-only
+   * databases unless an operator allowlists them (SSRF_ALLOWED_HOSTS /
+   * SSRF_ALLOW_PRIVATE).
+   */
+  private async assertSafeDbHost(baseUrl: string): Promise<void> {
+    if (this.isSqlite(baseUrl)) return;
+    const hosts = this.extractHosts(baseUrl);
+    for (const host of hosts) {
+      await assertSafeOutboundHost(host);
+    }
+  }
+
+  /**
+   * Pull the host(s) out of a DB connection string without assuming http(s).
+   * Handles `scheme://user:pass@host:port/db`, comma-separated replica-set hosts
+   * (`mongodb://h1:27017,h2:27017/db`) and bracketed IPv6 (`[::1]:5432`).
+   */
+  private extractHosts(baseUrl: string): string[] {
+    const m = baseUrl.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/(.*)$/s);
+    if (!m) return [];
+    // Authority = everything before the first path/query/fragment separator.
+    let authority = m[1].split(/[/?#]/)[0];
+    // Strip credentials (user:pass@) — keep only what follows the last '@'.
+    const at = authority.lastIndexOf('@');
+    if (at !== -1) authority = authority.slice(at + 1);
+    return authority
+      .split(',')
+      .map((hp) => {
+        const h = hp.trim();
+        if (!h) return '';
+        if (h.startsWith('[')) {
+          const end = h.indexOf(']'); // [ipv6]:port
+          return end !== -1 ? h.slice(1, end) : h.slice(1);
+        }
+        const colon = h.indexOf(':'); // host:port
+        return colon !== -1 ? h.slice(0, colon) : h;
+      })
+      .filter(Boolean);
+  }
 
   private isMongodb(baseUrl: string): boolean {
     return baseUrl.startsWith('mongodb://') || baseUrl.startsWith('mongodb+srv://');
