@@ -15,21 +15,33 @@ const INTROSPECTION_QUERY = `
         fields {
           name
           description
+          type { ...TypeRef }
           args {
             name
             description
-            type {
-              kind
-              name
-              ofType {
-                kind
-                name
-                ofType {
-                  kind
-                  name
-                }
-              }
-            }
+            type { ...TypeRef }
+          }
+        }
+      }
+    }
+  }
+
+  fragment TypeRef on __Type {
+    kind
+    name
+    ofType {
+      kind
+      name
+      ofType {
+        kind
+        name
+        ofType {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType { kind name }
           }
         }
       }
@@ -114,6 +126,13 @@ export class GraphqlParser {
     const queryTypeName = schema.queryType?.name || 'Query';
     const mutationTypeName = schema.mutationType?.name || 'Mutation';
 
+    // Index OBJECT types by name so a field's return type can be expanded into
+    // its subfield names for the output schema.
+    const typesByName = new Map<string, any>();
+    for (const t of schema.types || []) {
+      if (t?.name && t.kind === 'OBJECT') typesByName.set(t.name, t);
+    }
+
     for (const type of schema.types) {
       if (type.name.startsWith('__')) continue;
       if (type.kind !== 'OBJECT') continue;
@@ -124,7 +143,11 @@ export class GraphqlParser {
 
       for (const field of type.fields || []) {
         if (field.name.startsWith('__')) continue;
-        const tool = this.fieldToTool(field, isQuery ? 'query' : 'mutation');
+        const tool = this.fieldToTool(
+          field,
+          isQuery ? 'query' : 'mutation',
+          typesByName,
+        );
         tools.push(tool);
       }
     }
@@ -133,7 +156,11 @@ export class GraphqlParser {
     return tools;
   }
 
-  private fieldToTool(field: any, type: 'query' | 'mutation'): ParsedTool {
+  private fieldToTool(
+    field: any,
+    type: 'query' | 'mutation',
+    typesByName?: Map<string, any>,
+  ): ParsedTool {
     const properties: Record<string, any> = {};
     const required: string[] = [];
     const variableMapping: Record<string, string> = {};
@@ -164,7 +191,7 @@ export class GraphqlParser {
         ? `${type} ${field.name}(${argsDef}) { ${field.name}(${argsUsage}) }`
         : `${type} { ${field.name} }`;
 
-    return {
+    const tool: ParsedTool = {
       name: `graphql_${field.name}`.toLowerCase(),
       description: field.description || `GraphQL ${type}: ${field.name}`,
       parameters: {
@@ -180,6 +207,76 @@ export class GraphqlParser {
           : {}),
       },
     };
+
+    if (typesByName) {
+      const outputSchema = this.returnTypeToJsonSchema(
+        field.type,
+        typesByName,
+        0,
+        new Set(),
+      );
+      if (
+        outputSchema &&
+        (outputSchema.type === 'object' || outputSchema.type === 'array')
+      ) {
+        tool.outputSchema = outputSchema;
+      }
+    }
+    return tool;
+  }
+
+  /**
+   * Expand a GraphQL return type into a JSON Schema of its (sub)field names.
+   * Unwraps NON_NULL/LIST, recurses into OBJECT types, and guards against
+   * recursive types via a visited set + depth cap.
+   */
+  private returnTypeToJsonSchema(
+    gqlType: any,
+    typesByName: Map<string, any>,
+    depth: number,
+    visited: Set<string>,
+  ): Record<string, unknown> | undefined {
+    if (!gqlType || depth > 5) return undefined;
+
+    // List → array of the inner type.
+    if (gqlType.kind === 'LIST') {
+      const items = this.returnTypeToJsonSchema(
+        gqlType.ofType,
+        typesByName,
+        depth + 1,
+        visited,
+      );
+      return items ? { type: 'array', items } : { type: 'array' };
+    }
+    if (gqlType.kind === 'NON_NULL') {
+      return this.returnTypeToJsonSchema(
+        gqlType.ofType,
+        typesByName,
+        depth,
+        visited,
+      );
+    }
+
+    const name = gqlType.name;
+    const objType = name ? typesByName.get(name) : undefined;
+    if (!objType) {
+      // Scalar / enum / unresolved → primitive.
+      return { type: this.graphqlTypeToJsonType(gqlType) };
+    }
+    if (visited.has(name)) return { type: 'object' }; // break cycles
+    visited.add(name);
+
+    const properties: Record<string, unknown> = {};
+    let count = 0;
+    for (const f of objType.fields || []) {
+      if (f.name.startsWith('__') || count++ >= 100) continue;
+      properties[f.name] =
+        this.returnTypeToJsonSchema(f.type, typesByName, depth + 1, visited) ?? {
+          type: 'string',
+        };
+    }
+    visited.delete(name);
+    return { type: 'object', properties, additionalProperties: true };
   }
 
   private graphqlTypeToJsonType(gqlType: any): string {

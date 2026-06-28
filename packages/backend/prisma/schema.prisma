@@ -35,6 +35,12 @@ model Organization {
   invitationTokens InvitationToken[]
   licenses         License[]
   orgSettings      OrgSettings[]
+  toolInvocations  ToolInvocation[]
+  kgNodes          KgNode[]
+  kgEdges          KgEdge[]
+  kgConnectorState KgConnectorState[]
+  kgValueSeen      KgValueSeen[]
+  kgSkills         KgSkillSuggestion[]
 
   @@map("organizations")
 }
@@ -100,6 +106,12 @@ model User {
   onboardingLastReminderAt DateTime? @map("onboarding_last_reminder_at")
   onboardingReminderCount  Int       @default(0) @map("onboarding_reminder_count")
   emailMarketingOptOut     Boolean   @default(false) @map("email_marketing_opt_out")
+
+  // Activation milestone: stamped the first time this user records a
+  // SUCCESS tool invocation. null = signed up / built a connector but has
+  // never seen a working call — the cohort the activation drip targets.
+  firstSuccessfulInvocationAt DateTime? @map("first_successful_invocation_at")
+  activationReminderAt        DateTime? @map("activation_reminder_at")
 
   // MCP tool governance — optional custom role for tool access control
   mcpRoleId String? @map("mcp_role_id")
@@ -259,11 +271,13 @@ enum ConnectorType {
   GRAPHQL
   MCP
   DATABASE
+  WEBHOOK
 }
 
 enum AuthType {
   NONE
   API_KEY
+  QUERY_AUTH
   BEARER_TOKEN
   BASIC_AUTH
   OAUTH2
@@ -271,6 +285,7 @@ enum AuthType {
   WS_SECURITY
   CERTIFICATE
   CONNECTION_STRING
+  HMAC
   LOGIN_TOKEN
 }
 
@@ -312,11 +327,15 @@ model Connector {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  tools      McpTool[]
-  resources  McpResource[]
-  prompts    McpPrompt[]
-  mcpServers McpServerConnector[]
-  authCache  ConnectorAuthCache?
+  tools           McpTool[]
+  resources       McpResource[]
+  prompts         McpPrompt[]
+  mcpServers      McpServerConnector[]
+  authCache       ConnectorAuthCache?
+  toolInvocations ToolInvocation[]
+  kgNodes         KgNode[]
+  kgState         KgConnectorState?
+  kgSkills        KgSkillSuggestion[]
 
   @@index([organizationId])
   @@map("connectors")
@@ -381,6 +400,11 @@ model McpTool {
   //   bodyMapping: { ... },
   //   headers: { ... }
   // }
+
+  // JSON Schema of the tool's response, surfaced to MCP clients as the tool's
+  // outputSchema. Auto-inferred from real responses (Test / observed) or from
+  // the import spec. Null = not known yet (tool served without an output schema).
+  outputSchema Json? @map("output_schema")
 
   // How to transform the API response for MCP
   responseMapping Json? @map("response_mapping")
@@ -463,6 +487,7 @@ model McpServerConfig {
   connectors      McpServerConnector[]
   apiKeys         McpApiKey[]
   toolInvocations ToolInvocation[]
+  kgSkills        KgSkillSuggestion[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -502,6 +527,24 @@ model ToolInvocation {
   mcpServerId String?          @map("mcp_server_id")
   mcpServer   McpServerConfig? @relation(fields: [mcpServerId], references: [id], onDelete: SetNull)
 
+  // Denormalized tenant + connector scope (added for per-org analytics and the
+  // knowledge-graph observational layer). Nullable so instance-level / anonymous
+  // self-host calls still persist. Backfilled from tool -> connector.
+  organizationId String?       @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String?       @map("connector_id")
+  connector      Connector?    @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+
+  // Optional natural-language user intent that led to this call (captured only
+  // when the workspace enables intent capture). Feeds graph/KB optimization.
+  intent     String? @db.Text
+
+  // Whether this call was routed through the proxy/unblocker (for metering).
+  usedProxy  Boolean @default(false) @map("used_proxy")
+  // Optional metered cost snapshot at write time (micros). Reserved for the
+  // cost/billing layer; null until a BillingRate is configured.
+  costMicros Int?    @map("cost_micros")
+
   input      Json
   output     Json?
   status     InvocationStatus
@@ -515,6 +558,8 @@ model ToolInvocation {
   @@index([toolId, createdAt])
   @@index([userId, createdAt])
   @@index([mcpServerId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([connectorId, createdAt])
   @@map("tool_invocations")
 }
 
@@ -589,4 +634,152 @@ model OAuthUserProfile {
 
   @@unique([provider, externalId])
   @@map("oauth_user_profiles")
+}
+
+// ── Knowledge Graph ─────────────────────────────────────────────────────────
+// Per-organization entity graph over a workspace's connectors. Two layers:
+//   STATIC   — derived from tool names + parameter names at install time.
+//   OBSERVED — derived from real tool_invocations (value-flow + identity).
+//   MANUAL   — user-created/confirmed links.
+// Org isolation is enforced at the application layer (every query is scoped by
+// organizationId); RLS is an optional later hardening, not required here.
+
+enum KgSource {
+  STATIC
+  OBSERVED
+  MANUAL
+  LLM
+}
+
+model KgNode {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String       @map("connector_id")
+  connector      Connector    @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  entity       String // normalized singular noun, e.g. "deal"
+  label        String
+  description  String?  @db.Text // human-curated note about the entity; served to AI clients
+  fields       Json     @default("[]") // [{name,type}] — input parameter surface
+  outputFields Json     @default("[]") @map("output_fields") // string[] — field names this entity's tools RETURN (from outputSchema)
+  toolNames    Json     @default("[]") @map("tool_names") // string[] — tools that touch this entity
+  source       KgSource @default(STATIC)
+  confidence   Float    @default(0)
+  observations Int      @default(0)
+
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  outgoingEdges KgEdge[] @relation("KgEdgeSource")
+  incomingEdges KgEdge[] @relation("KgEdgeTarget")
+
+  @@unique([organizationId, connectorId, entity])
+  @@index([organizationId])
+  @@map("kg_nodes")
+}
+
+model KgEdge {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  sourceNodeId String @map("source_node_id")
+  sourceNode   KgNode @relation("KgEdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNodeId String @map("target_node_id")
+  targetNode   KgNode @relation("KgEdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  kind          String // references | produces_consumes | same_identity | parent_child
+  matchKey      String?  @map("match_key")
+  evidenceTools Json?    @map("evidence_tools") // string[]
+  note          String?  @db.Text // human/LLM rationale for the link
+  source        KgSource @default(STATIC)
+  confidence    Float    @default(0)
+  observations  Int      @default(0)
+  isManual      Boolean  @default(false) @map("is_manual")
+  status        String   @default("active") // active | suggested | rejected
+
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@unique([organizationId, sourceNodeId, targetNodeId, kind])
+  @@index([organizationId])
+  @@map("kg_edges")
+}
+
+model KgConnectorState {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String       @unique @map("connector_id")
+  connector      Connector    @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  staticHash     String?   @map("static_hash")
+  lastStaticAt   DateTime? @map("last_static_at")
+  lastObservedAt DateTime? @map("last_observed_at")
+
+  @@index([organizationId])
+  @@map("kg_connector_state")
+}
+
+// LLM-proposed reusable skill/correction inferred from captured user intents
+// (e.g. "daily revenue should include order status 2/3/4, not only 4"). A human
+// reviews each; applying it appends the instruction to the connector's guidance.
+model KgSkillSuggestion {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String?      @map("connector_id")
+  connector      Connector?   @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  // A skill is scoped to a single connector OR to a whole MCP server (which
+  // understands the combined context of all its assigned connectors).
+  mcpServerId    String?          @map("mcp_server_id")
+  mcpServer      McpServerConfig? @relation(fields: [mcpServerId], references: [id], onDelete: SetNull)
+
+  title         String
+  whenToUse     String   @db.Text @map("when_to_use")
+  instruction   String   @db.Text
+  confidence    Float    @default(0)
+  evidenceCount Int      @default(0) @map("evidence_count")
+  status        String   @default("pending") // pending | applied | dismissed
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([organizationId])
+  @@map("kg_skill_suggestions")
+}
+
+// A submitted LLM batch job (cloud cron, cost-saver). Tracks the provider batch
+// id so a later cron run can retrieve results and apply them. `context` maps each
+// request's custom_id to what's needed to apply its result (org, type, ref map).
+model KgLlmBatch {
+  id         String   @id @default(cuid())
+  provider   String
+  externalId String   @map("external_id")
+  status     String   @default("pending") // pending | done
+  context    Json // { [customId]: { type, organizationId, ... } }
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("kg_llm_batches")
+}
+
+// Short-lived, PII-safe index of identifier value HASHES (HMAC with a per-org
+// secret) used to correlate produce→consume / identity across invocations.
+// Stores hashes + field metadata only — never raw values. TTL-pruned.
+model KgValueSeen {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String       @map("connector_id")
+  valueHash      String       @map("value_hash")
+  entity         String
+  field          String
+  direction      String // input | output
+  seenAt         DateTime @default(now()) @map("seen_at")
+
+  @@index([organizationId, valueHash])
+  @@index([seenAt])
+  @@map("kg_value_seen")
 }

@@ -665,4 +665,83 @@ describe('OpenApiParser', () => {
       expect(params.properties.email.nullable).toBe(true);
     });
   });
+
+  it('extracts an output schema from a 2xx JSON response', async () => {
+    const spec = {
+      openapi: '3.0.0',
+      info: { title: 't', version: '1' },
+      paths: {
+        '/customers/{id}': {
+          get: {
+            operationId: 'getCustomer',
+            parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+            responses: {
+              '200': {
+                description: 'ok',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        customer_id: { type: 'string' },
+                        addresses: { type: 'array', items: { type: 'object', properties: { city: { type: 'string' } } } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const tools = await parser.parse(spec);
+    const t = tools.find((x) => x.name === 'getcustomer')!;
+    expect(t.outputSchema).toBeDefined();
+    expect((t.outputSchema as any).type).toBe('object');
+    expect(Object.keys((t.outputSchema as any).properties)).toEqual(
+      expect.arrayContaining(['id', 'customer_id', 'addresses']),
+    );
+    expect((t.outputSchema as any).properties.addresses.type).toBe('array');
+  });
+
+  it('accepts a 3.0.4 spec by coercing the patch version (swagger-parser caps at 3.0.3)', async () => {
+    const spec = {
+      openapi: '3.0.4',
+      info: { title: 't', version: '1' },
+      paths: {
+        '/pets': {
+          get: {
+            operationId: 'listPets',
+            responses: {
+              '200': {
+                description: 'ok',
+                content: {
+                  'application/json': { schema: { type: 'object', properties: { id: { type: 'string' } } } },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const tools = await parser.parse(spec);
+    expect(tools.find((t) => t.name === 'listpets')).toBeDefined();
+  });
+
+  it('resolves a $ref response schema', async () => {
+    const spec = {
+      openapi: '3.0.0',
+      info: { title: 't', version: '1' },
+      paths: {
+        '/o': { get: { operationId: 'getO', responses: { '200': { description: 'ok', content: { 'application/json': { schema: { $ref: '#/components/schemas/Order' } } } } } } },
+      },
+      components: { schemas: { Order: { type: 'object', properties: { order_id: { type: 'string' } } } } },
+    };
+    const tools = await parser.parse(spec);
+    const t = tools.find((x) => x.name === 'geto')!;
+    expect(Object.keys((t.outputSchema as any).properties)).toContain('order_id');
+  });
+
 });

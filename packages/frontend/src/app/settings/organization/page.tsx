@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { organizations } from '@/lib/api';
+import { organizations, knowledgeGraph, type KgSettings } from '@/lib/api';
 import * as Dialog from '@radix-ui/react-dialog';
 
 export default function OrganizationSettingsPage() {
@@ -24,6 +24,10 @@ export default function OrganizationSettingsPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Knowledge graph feature toggles
+  const [kg, setKg] = useState<KgSettings | null>(null);
+  const [kgSaving, setKgSaving] = useState(false);
+
   const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
@@ -33,7 +37,20 @@ export default function OrganizationSettingsPage() {
       setOrgId(org.id);
       setCreatedAt(org.createdAt);
     }).catch(() => {});
+    knowledgeGraph.getSettings(token).then(setKg).catch(() => {});
   }, [token]);
+
+  const updateFlag = async (patch: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean; autoExtend?: boolean; skillAutoApply?: boolean }) => {
+    if (!token || !kg) return;
+    setKgSaving(true);
+    try {
+      setKg(await knowledgeGraph.updateSettings(token, patch));
+    } catch {
+      /* keep previous state */
+    } finally {
+      setKgSaving(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!token || !name.trim()) return;
@@ -158,6 +175,62 @@ export default function OrganizationSettingsPage() {
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
+        )}
+      </div>
+
+      {/* Features */}
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-5 space-y-4">
+        <h3 className="text-sm font-semibold">Features</h3>
+
+        <FeatureToggle
+          label="Knowledge Graph"
+          description="Auto-discovers relationships between your connectors' entities (from tool definitions and real usage) and exposes them to agents. Disabling it stops graph building, hides the page, and removes the MCP helper tool."
+          checked={!!kg?.enabled}
+          disabled={!isAdmin || kgSaving || !kg}
+          isAdmin={isAdmin}
+          onToggle={() => updateFlag({ enabled: !kg?.enabled })}
+        />
+
+        {kg?.llmAvailable && (
+          <FeatureToggle
+            label="AI enrichment"
+            description="Let an LLM suggest extra relationships the heuristics miss (e.g. that a CRM person, a billing customer and a support user are the same person). Only entity and field names are sent — never your data. Suggestions await your confirmation. May incur model costs."
+            checked={!!kg?.llmEnabled}
+            disabled={!isAdmin || kgSaving || !kg?.enabled}
+            isAdmin={isAdmin}
+            onToggle={() => updateFlag({ llmEnabled: !kg?.llmEnabled })}
+          />
+        )}
+
+        <FeatureToggle
+          label="Capture user intent"
+          description="Adds an optional parameter to every MCP tool asking the agent for the user's original request. Captures the context behind each call so the graph can be optimized and skills suggested over time."
+          checked={!!kg?.captureIntent}
+          disabled={!isAdmin || kgSaving || !kg?.enabled}
+          isAdmin={isAdmin}
+          onToggle={() => updateFlag({ captureIntent: !kg?.captureIntent })}
+        />
+
+        {kg?.llmAvailable && (
+          <FeatureToggle
+            label="Scheduled AI extension"
+            description="On a schedule (roughly daily), let the AI extend the graph and generate skills from the captured user intents — so your network and skills keep improving on their own. Cost-careful: it only runs every so often, skips when nothing changed, and stays off until you enable it. Requires AI enrichment + Capture user intent."
+            checked={!!kg?.autoExtend}
+            disabled={!isAdmin || kgSaving || !kg?.enabled || !kg?.llmEnabled}
+            isAdmin={isAdmin}
+            onToggle={() => updateFlag({ autoExtend: !kg?.autoExtend })}
+          />
+        )}
+
+        {kg?.llmAvailable && (
+          <FeatureToggle
+            label="Auto-apply high-confidence skills"
+            description="When AI generates a skill it is confident about (≥ 0.90), apply it automatically instead of leaving it as a suggestion to review. Lower-confidence skills still wait for manual approval."
+            checked={!!kg?.skillAutoApply}
+            disabled={!isAdmin || kgSaving || !kg?.enabled || !kg?.llmEnabled}
+            isAdmin={isAdmin}
+            onToggle={() => updateFlag({ skillAutoApply: !kg?.skillAutoApply })}
+          />
         )}
       </div>
 
@@ -287,6 +360,47 @@ export default function OrganizationSettingsPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function FeatureToggle({
+  label,
+  description,
+  checked,
+  disabled,
+  isAdmin,
+  onToggle,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  isAdmin: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{description}</p>
+      </div>
+      <button
+        onClick={onToggle}
+        disabled={disabled}
+        role="switch"
+        aria-checked={checked}
+        title={isAdmin ? '' : 'Only admins can change this'}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+          checked ? 'bg-[var(--brand)]' : 'bg-[var(--border)]'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
     </div>
   );
 }

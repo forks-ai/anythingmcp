@@ -38,6 +38,7 @@ export class OnboardingCronService {
     examined: number;
     firstReminders: number;
     secondReminders: number;
+    activationReminders: number;
     skipped: number;
   }> {
     const now = Date.now();
@@ -45,6 +46,7 @@ export class OnboardingCronService {
       examined: 0,
       firstReminders: 0,
       secondReminders: 0,
+      activationReminders: 0,
       skipped: 0,
     };
 
@@ -147,9 +149,72 @@ export class OnboardingCronService {
       out.skipped++;
     }
 
+    await this.runActivationPass(now, out);
+
     this.logger.log(
-      `Onboarding drip: examined=${out.examined} first=${out.firstReminders} second=${out.secondReminders} skipped=${out.skipped}`,
+      `Onboarding drip: examined=${out.examined} first=${out.firstReminders} ` +
+        `second=${out.secondReminders} activation=${out.activationReminders} skipped=${out.skipped}`,
     );
     return out;
+  }
+
+  /**
+   * Activation pass — the cohort that builds a connector but never lands a
+   * successful tool call (the biggest single drop-off). One email only,
+   * 24h-14d after signup, linking straight to their connector's playground.
+   * `firstSuccessfulInvocationAt: null` = never activated; `activationReminderAt`
+   * caps it at one send.
+   */
+  private async runActivationPass(
+    now: number,
+    out: {
+      examined: number;
+      activationReminders: number;
+      skipped: number;
+    },
+  ): Promise<void> {
+    const stuck = await this.prisma.user.findMany({
+      where: {
+        emailVerified: true,
+        emailMarketingOptOut: false,
+        firstSuccessfulInvocationAt: null,
+        activationReminderAt: null,
+        createdAt: {
+          lte: new Date(now - HOURS(24)),
+          gte: new Date(now - HOURS(24 * 14)),
+        },
+        connectors: { some: {} },
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        connectors: {
+          select: { id: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    for (const u of stuck) {
+      out.examined++;
+      const connectorId = u.connectors[0]?.id;
+      const path = connectorId ? `/connectors/${connectorId}` : '/connectors';
+      const ok = await this.email.sendActivationReminderEmail(
+        u.email,
+        u.name || 'there',
+        path,
+      );
+      if (ok) {
+        await this.prisma.user.update({
+          where: { id: u.id },
+          data: { activationReminderAt: new Date() },
+        });
+        out.activationReminders++;
+      } else {
+        out.skipped++;
+      }
+    }
   }
 }

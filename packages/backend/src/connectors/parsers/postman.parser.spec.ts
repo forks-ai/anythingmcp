@@ -616,4 +616,37 @@ describe('PostmanParser', () => {
     // base_url is a collection variable, should not become a required param
     expect(params.required?.includes('base_url')).toBeFalsy();
   });
+
+  it('infers an output schema from a saved example response', async () => {
+    const collection = {
+      info: { name: 'c', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+      item: [
+        {
+          name: 'Get order',
+          request: { method: 'GET', url: { raw: 'https://api.x.com/orders/1', path: ['orders', '1'] } },
+          response: [
+            { code: 200, body: JSON.stringify({ order_id: 'A1', customer_id: 'C9', total: 12 }) },
+          ],
+        },
+      ],
+    };
+    const tools = await parser.parse(collection);
+    const t = tools[0];
+    expect(t.outputSchema).toBeDefined();
+    expect(Object.keys((t.outputSchema as any).properties)).toEqual(
+      expect.arrayContaining(['order_id', 'customer_id', 'total']),
+    );
+  });
+
+  it('ignores a non-JSON example body', async () => {
+    const collection = {
+      info: { name: 'c', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+      item: [
+        { name: 'Ping', request: { method: 'GET', url: { raw: 'https://api.x.com/ping', path: ['ping'] } }, response: [{ code: 200, body: 'pong' }] },
+      ],
+    };
+    const tools = await parser.parse(collection);
+    expect(tools[0].outputSchema).toBeUndefined();
+  });
+
 });

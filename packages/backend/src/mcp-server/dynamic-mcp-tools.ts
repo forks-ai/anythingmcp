@@ -14,6 +14,7 @@ import { DeploymentService } from '../common/deployment.service';
 import { PrismaService } from '../common/prisma.service';
 import { interpolateConnectorConfig } from '../common/env-interpolation.util';
 import { resolveInternalDbRestUrl } from '../common/db-rest.util';
+import { KgService } from '../knowledge-graph/kg.service';
 import type { RegisteredTool } from './tool-registry';
 
 /**
@@ -38,6 +39,7 @@ export class DynamicMcpTools {
     private readonly soapEngine: SoapEngine,
     private readonly mcpClientEngine: McpClientEngine,
     private readonly databaseEngine: DatabaseEngine,
+    private readonly kgService: KgService,
   ) {}
 
   /**
@@ -128,6 +130,7 @@ export class DynamicMcpTools {
       mcpServerId?: string;
       mcpServerName?: string;
       connectorIds?: string[];
+      intent?: string;
     },
   ): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> {
     // Check license before executing tool (cloud mode only)
@@ -186,6 +189,7 @@ export class DynamicMcpTools {
     }
 
     const startTime = Date.now();
+    let usedProxy = false;
 
     try {
       const envVars = tool.connectorConfig.envVars || {};
@@ -206,6 +210,7 @@ export class DynamicMcpTools {
       // Decide proxy routing (env present + tool opted in + cloud rate-limit).
       // Throws on over-quota (choice B). Returns null → direct request.
       const proxyUrl = await this.resolveProxy(tool, context?.organizationId);
+      usedProxy = proxyUrl != null;
 
       const engineConfig = {
         baseUrl: this.resolveInternalBaseUrl(interpolatedConfig.baseUrl),
@@ -240,6 +245,10 @@ export class DynamicMcpTools {
         userId: context?.userId,
         userEmail: context?.userEmail,
         mcpServerId: context?.mcpServerId,
+        organizationId: context?.organizationId,
+        connectorId: tool.connectorId,
+        usedProxy,
+        intent: context?.intent,
         input: params,
         output: result as Record<string, unknown>,
         status: 'SUCCESS',
@@ -251,6 +260,9 @@ export class DynamicMcpTools {
           mcpServerName: context.mcpServerName,
         }) : undefined,
       });
+
+      // Grow the knowledge graph from this real call (debounced, fire-and-forget).
+      void this.kgService.scheduleObservationalIngest(context?.organizationId);
 
       const resultText = JSON.stringify(result, null, 2);
 
@@ -275,6 +287,10 @@ export class DynamicMcpTools {
         userId: context?.userId,
         userEmail: context?.userEmail,
         mcpServerId: context?.mcpServerId,
+        organizationId: context?.organizationId,
+        connectorId: tool.connectorId,
+        usedProxy,
+        intent: context?.intent,
         input: params,
         status: 'ERROR',
         durationMs,

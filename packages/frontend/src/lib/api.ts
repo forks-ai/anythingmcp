@@ -284,15 +284,216 @@ export const audit = {
   },
   stats: (token: string) =>
     request<{ invocations24h: number; errors24h: number; invocations7d: number; totalInvocations: number }>('/api/audit/stats', { token }),
-  analytics: (token: string) =>
+  analytics: (token: string, days = 7) =>
     request<{
       daily: Array<{ date: string; success: number; error: number; timeout: number; avgDuration: number }>;
       topTools: Array<{ name: string; count: number; errors: number; avgDuration: number }>;
       totalInvocations: number;
       successRate: number;
       avgDuration: number;
-    }>('/api/audit/analytics', { token }),
+    }>(`/api/audit/analytics?days=${days}`, { token }),
+  breakdowns: (token: string, days = 30) =>
+    request<AuditBreakdowns>(`/api/audit/breakdowns?days=${days}`, { token }),
 };
+
+export interface BreakdownRow {
+  id: string | null;
+  label: string;
+  count: number;
+  errors: number;
+}
+
+export interface AuditBreakdowns {
+  days: number;
+  total: number;
+  errors: number;
+  proxyCalls: number;
+  estCostMicros: number;
+  rates: { callMicros: number; proxyCallMicros: number };
+  byConnector: BreakdownRow[];
+  byServer: BreakdownRow[];
+  byUser: BreakdownRow[];
+}
+
+// Knowledge Graph
+export interface KgNode {
+  id: string;
+  entity: string;
+  label: string;
+  description?: string | null;
+  connectorId: string;
+  connectorName: string | null;
+  fields: Array<{ name: string; type: string }>;
+  toolNames: string[];
+  source: string;
+  confidence: number;
+  observations: number;
+}
+
+export interface KgEdge {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  kind: string;
+  matchKey: string | null;
+  note?: string | null;
+  source: string;
+  confidence: number;
+  observations: number;
+  isManual: boolean;
+  status: string;
+}
+
+export interface KgSettings {
+  enabled: boolean;
+  llmEnabled: boolean;
+  llmAvailable: boolean;
+  captureIntent: boolean;
+  autoExtend: boolean;
+  skillAutoApply: boolean;
+}
+
+export interface KgSkillList {
+  items: KgSkill[];
+  total: number;
+  counts: { pending: number; applied: number; dismissed: number };
+  take: number;
+  skip: number;
+}
+
+export const knowledgeGraph = {
+  get: (token: string) =>
+    request<{ nodes: KgNode[]; edges: KgEdge[]; lastBuiltAt: string | null; enabled: boolean }>(
+      '/api/knowledge-graph',
+      { token },
+    ),
+  getSettings: (token: string) =>
+    request<KgSettings>('/api/knowledge-graph/settings', { token }),
+  updateSettings: (
+    token: string,
+    body: {
+      enabled?: boolean;
+      llmEnabled?: boolean;
+      captureIntent?: boolean;
+      autoExtend?: boolean;
+      skillAutoApply?: boolean;
+    },
+  ) =>
+    request<KgSettings>('/api/knowledge-graph/settings', { token, method: 'PUT', body }),
+  enrich: (token: string) =>
+    request<{ suggested: number; skipped?: boolean; model?: string }>(
+      '/api/knowledge-graph/enrich',
+      { token, method: 'POST' },
+    ),
+  stats: (token: string) =>
+    request<{ nodes: number; edges: number; suggested: number }>(
+      '/api/knowledge-graph/stats',
+      { token },
+    ),
+  rebuild: (token: string) =>
+    request<{ connectors: number; nodes: number; edges: number; invocations: number }>(
+      '/api/knowledge-graph/rebuild',
+      { token, method: 'POST' },
+    ),
+  setEdgeStatus: (token: string, id: string, status: 'active' | 'rejected') =>
+    request<KgEdge>(`/api/knowledge-graph/edges/${id}`, {
+      token,
+      method: 'PATCH',
+      body: { status },
+    }),
+  createEdge: (
+    token: string,
+    body: { sourceNodeId: string; targetNodeId: string; kind?: string; note?: string },
+  ) =>
+    request<KgEdge>('/api/knowledge-graph/edges', { token, method: 'POST', body }),
+  updateEdge: (
+    token: string,
+    id: string,
+    body: {
+      status?: 'active' | 'rejected' | 'suggested';
+      kind?: string;
+      note?: string | null;
+      matchKey?: string | null;
+    },
+  ) => request<KgEdge>(`/api/knowledge-graph/edges/${id}`, { token, method: 'PATCH', body }),
+  updateNode: (
+    token: string,
+    id: string,
+    body: { label?: string; description?: string | null },
+  ) => request<KgNode>(`/api/knowledge-graph/nodes/${id}`, { token, method: 'PATCH', body }),
+  deleteEdge: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/api/knowledge-graph/edges/${id}`, {
+      token,
+      method: 'DELETE',
+    }),
+  createNode: (
+    token: string,
+    body: { connectorId: string; label: string; entity?: string; description?: string },
+  ) => request<KgNode>('/api/knowledge-graph/nodes', { token, method: 'POST', body }),
+  deleteNode: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/api/knowledge-graph/nodes/${id}`, { token, method: 'DELETE' }),
+  skills: {
+    list: (
+      token: string,
+      params?: { status?: string; q?: string; take?: number; skip?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set('status', params.status);
+      if (params?.q) qs.set('q', params.q);
+      if (params?.take != null) qs.set('take', String(params.take));
+      if (params?.skip != null) qs.set('skip', String(params.skip));
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return request<KgSkillList>(`/api/knowledge-graph/skills${suffix}`, { token });
+    },
+    consolidate: (token: string, mcpServerId?: string) =>
+      request<{ before: number; after: number; model?: string }>(
+        '/api/knowledge-graph/skills/consolidate',
+        { token, method: 'POST', body: mcpServerId ? { mcpServerId } : {} },
+      ),
+    create: (
+      token: string,
+      body: {
+        title: string;
+        whenToUse?: string;
+        instruction: string;
+        connectorId?: string | null;
+        mcpServerId?: string | null;
+        status?: string;
+      },
+    ) => request<KgSkill>('/api/knowledge-graph/skills', { token, method: 'POST', body }),
+    generate: (token: string, mcpServerId?: string) =>
+      request<{ created: number; model?: string }>('/api/knowledge-graph/skills/generate', {
+        token,
+        method: 'POST',
+        body: mcpServerId ? { mcpServerId } : {},
+      }),
+    apply: (token: string, id: string) =>
+      request<KgSkill>(`/api/knowledge-graph/skills/${id}/apply`, { token, method: 'POST' }),
+    dismiss: (token: string, id: string) =>
+      request<KgSkill>(`/api/knowledge-graph/skills/${id}/dismiss`, { token, method: 'POST' }),
+    update: (
+      token: string,
+      id: string,
+      patch: { title?: string; whenToUse?: string; instruction?: string; status?: string },
+    ) => request<KgSkill>(`/api/knowledge-graph/skills/${id}`, { token, method: 'PATCH', body: patch }),
+    remove: (token: string, id: string) =>
+      request<{ ok: boolean }>(`/api/knowledge-graph/skills/${id}`, { token, method: 'DELETE' }),
+  },
+};
+
+export interface KgSkill {
+  id: string;
+  connectorId: string | null;
+  connector?: { name: string } | null;
+  mcpServerId: string | null;
+  mcpServer?: { name: string } | null;
+  title: string;
+  whenToUse: string;
+  instruction: string;
+  confidence: number;
+  evidenceCount: number;
+  status: string;
+}
 
 // Server settings (public)
 export const server = {

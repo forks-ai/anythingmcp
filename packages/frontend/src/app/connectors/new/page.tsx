@@ -43,7 +43,13 @@ export default function NewConnectorPage() {
   const [dbReadOnly, setDbReadOnly] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    kind?: 'ok' | 'auth_failed' | 'not_found' | 'unreachable' | 'unsupported' | 'error';
+    httpStatus?: number;
+    suggestedFix?: { action: string; hostname?: string; url?: string };
+  } | null>(null);
   const [createdConnector, setCreatedConnector] = useState<{ id: string; name: string } | null>(null);
 
   const buildAuthConfig = () => {
@@ -181,8 +187,43 @@ export default function NewConnectorPage() {
               <div className="mb-4 p-3 rounded-md bg-[var(--destructive-bg)] text-[var(--destructive-text)] text-sm border border-[var(--destructive-border)]">{error}</div>
             )}
             {testResult && (
-              <div className={`mb-4 p-3 rounded-md text-sm border ${testResult.ok ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)]' : 'bg-[var(--destructive-bg)] text-[var(--destructive-text)] border-[var(--destructive-border)]'}`}>
+              <div
+                className={`mb-4 p-3 rounded-md text-sm border ${
+                  testResult.ok
+                    ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)]'
+                    : testResult.kind === 'auth_failed'
+                      ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
+                      : 'bg-[var(--destructive-bg)] text-[var(--destructive-text)] border-[var(--destructive-border)]'
+                }`}
+              >
+                {testResult.kind && testResult.kind !== 'ok' && (
+                  <span className="font-semibold mr-1">
+                    {testResult.kind === 'auth_failed' &&
+                      `Credentials rejected${testResult.httpStatus ? ` (${testResult.httpStatus})` : ''}: `}
+                    {testResult.kind === 'not_found' && 'Not found: '}
+                    {testResult.kind === 'unreachable' && 'Unreachable: '}
+                    {testResult.kind === 'error' && 'Error: '}
+                  </span>
+                )}
                 {testResult.message}
+                {testResult.kind === 'auth_failed' && (
+                  <div className="mt-1 opacity-90">
+                    Double-check the API key / token / OAuth credentials for this
+                    connector, then test again.
+                  </div>
+                )}
+                {testResult.suggestedFix?.action === 'add-to-ssrf-allowlist' &&
+                  testResult.suggestedFix.hostname && (
+                    <div className="mt-2 pt-2 border-t border-current/20">
+                      <a
+                        href={testResult.suggestedFix.url || '/admin/settings#ssrf'}
+                        className="underline text-sm font-medium hover:no-underline"
+                      >
+                        → Add <code>{testResult.suggestedFix.hostname}</code> to the
+                        SSRF allowlist
+                      </a>
+                    </div>
+                  )}
               </div>
             )}
 

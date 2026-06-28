@@ -25,6 +25,8 @@ import { Type } from 'class-transformer';
 import { PrismaService } from '../common/prisma.service';
 import { McpServerService } from '../mcp-server/mcp-server.service';
 import { ConnectorsService } from './connectors.service';
+import { inferJsonSchema } from './output-schema.util';
+import { classifyToolExecutionError } from './connector-error.util';
 
 class CreateToolDto {
   @ApiProperty({
@@ -366,6 +368,22 @@ export class ToolsController {
         inputs,
       );
       const durationMs = Date.now() - startTime;
+      // Auto-fill the tool's output schema from this real response (first time
+      // only). Best-effort — never let it affect the test result.
+      if (!tool.outputSchema) {
+        try {
+          const inferred = inferJsonSchema(result);
+          if (inferred) {
+            await this.prisma.mcpTool.update({
+              where: { id: tool.id },
+              data: { outputSchema: inferred as any },
+            });
+            await this.mcpServer.reloadConnectorTools(connectorId);
+          }
+        } catch {
+          /* schema inference is best-effort */
+        }
+      }
       return {
         ok: true,
         durationMs,
@@ -379,6 +397,11 @@ export class ToolsController {
       }
       const { AxiosError: AxiosErr } = await import('axios');
       if (err instanceof AxiosErr && err.response) {
+        const { kind, hint } = classifyToolExecutionError({
+          status: err.response.status,
+          authType: tool.connector.authType,
+          message: err.message,
+        });
         return {
           ok: false,
           durationMs,
@@ -386,12 +409,20 @@ export class ToolsController {
           status: err.response.status,
           statusText: err.response.statusText,
           responseBody: err.response.data,
+          kind,
+          hint,
         };
       }
+      const { kind, hint } = classifyToolExecutionError({
+        authType: tool.connector.authType,
+        message: err.message,
+      });
       return {
         ok: false,
         durationMs,
         error: err.message || 'Execution failed',
+        kind,
+        hint,
       };
     }
   }

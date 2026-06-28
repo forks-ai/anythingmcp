@@ -281,6 +281,15 @@ class ImportToolDto {
   @IsOptional()
   @IsObject()
   responseMapping?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    description: "JSON Schema of the tool's response.",
+    type: 'object',
+    additionalProperties: true,
+  })
+  @IsOptional()
+  @IsObject()
+  outputSchema?: Record<string, unknown>;
 }
 
 class ImportConnectorDto {
@@ -580,6 +589,7 @@ export class ConnectorsController {
         parameters: t.parameters,
         endpointMapping: t.endpointMapping,
         responseMapping: t.responseMapping,
+        outputSchema: t.outputSchema,
       })),
     }));
 
@@ -762,6 +772,7 @@ export class ConnectorsController {
           method: rt.name,
           path: '/mcp',
         },
+        outputSchema: rt.outputSchema ?? null,
       }));
 
       return this.createToolsFromParsed(connector.id, parsedTools);
@@ -817,6 +828,7 @@ export class ConnectorsController {
                   parameters: t.parameters as any,
                   endpointMapping: t.endpointMapping as any,
                   responseMapping: t.responseMapping as any,
+                  outputSchema: (t.outputSchema ?? null) as any,
                 },
               });
               results.tools++;
@@ -974,6 +986,7 @@ export class ConnectorsController {
                 parameters: t.parameters || { type: 'object', properties: {} },
                 endpointMapping: t.endpointMapping,
                 responseMapping: t.responseMapping,
+                outputSchema: t.outputSchema ?? null,
               });
             }
           } catch (e: any) {
@@ -1004,6 +1017,7 @@ export class ConnectorsController {
                 method: rt.name,
                 path: dto.url || '/mcp',
               },
+              outputSchema: rt.outputSchema ?? null,
             });
           }
           break;
@@ -1142,6 +1156,12 @@ export class ConnectorsController {
               tool.responseMapping !== undefined
                 ? (tool.responseMapping as any)
                 : (match.responseMapping as any),
+            // Same policy for the derived output schema: refresh from the spec
+            // when present, otherwise keep whatever was inferred/observed before.
+            outputSchema:
+              tool.outputSchema != null
+                ? (tool.outputSchema as any)
+                : (match.outputSchema as any),
             operationId: tool.operationId ?? match.operationId,
             deprecatedAt: null,
             // Re-enable if it was disabled only because we'd previously
@@ -1165,6 +1185,7 @@ export class ConnectorsController {
             parameters: tool.parameters as any,
             endpointMapping: tool.endpointMapping as any,
             responseMapping: tool.responseMapping as any,
+            outputSchema: (tool.outputSchema ?? null) as any,
           },
         });
         tools.push(created);

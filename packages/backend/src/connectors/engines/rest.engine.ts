@@ -64,7 +64,9 @@ export class RestEngine {
     // when a vendor publishes multiple distinct API hosts under one product
     // (e.g. Statsig: api.statsig.com for SDK + statsigapi.net for Console),
     // so a single adapter can cover both without two connector records.
-    const url = /^https?:\/\//i.test(path) ? path : `${config.baseUrl}${path}`;
+    const url = /^https?:\/\//i.test(path)
+      ? path
+      : joinBaseAndPath(config.baseUrl, path);
     await assertSafeOutboundUrl(url);
 
     // Resolve dynamic headers from endpoint mapping ($param references)
@@ -145,7 +147,7 @@ export class RestEngine {
           if (encoding === 'form-urlencoded') {
             const urlParams = new URLSearchParams();
             for (const [k, v] of Object.entries(mapped)) {
-              urlParams.append(k, String(v));
+              appendFormParam((key, val) => urlParams.append(key, val), k, v);
             }
             axiosConfig.data = urlParams.toString();
             axiosConfig.headers = {
@@ -155,7 +157,7 @@ export class RestEngine {
           } else if (encoding === 'form-data') {
             const form = new FormData();
             for (const [k, v] of Object.entries(mapped)) {
-              form.append(k, String(v));
+              appendFormParam((key, val) => form.append(key, val), k, v);
             }
             axiosConfig.data = form;
             axiosConfig.headers = {
@@ -482,6 +484,51 @@ export class RestEngine {
     }
     return value;
   }
+}
+
+/**
+ * Join a connector baseUrl and an (already path-interpolated) endpoint path
+ * with exactly one slash at the seam. A baseUrl saved with a trailing slash
+ * (e.g. "https://api.example.com/v3.1/") combined with a leading-slash path
+ * ("/Users/me") previously produced a double slash ("…/v3.1//Users/me"),
+ * which several APIs answer with 404 or 500 even on otherwise-valid requests.
+ * An empty path leaves the baseUrl untouched.
+ */
+function joinBaseAndPath(baseUrl: string, path: string): string {
+  if (!path) return baseUrl;
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
+
+/**
+ * Emit a mapped body value as flat key/value pairs using PHP-style bracket
+ * notation for nested objects and arrays, e.g.
+ *   fields: { TITLE: 'x', TAGS: ['a', 'b'] }
+ *     → fields[TITLE]=x, fields[TAGS][0]=a, fields[TAGS][1]=b
+ *
+ * The form encoders (application/x-www-form-urlencoded and multipart/form-data)
+ * cannot carry a nested object directly; the previous `String(value)` coercion
+ * turned objects into the literal string "[object Object]", which APIs that
+ * expect bracketed params — Bitrix24 and most PHP backends — reject with a
+ * "value does not match parameter" error. Primitives are emitted as-is;
+ * null/undefined are skipped so absent optional fields don't send empty keys.
+ */
+function appendFormParam(
+  sink: (key: string, value: string) => void,
+  key: string,
+  value: unknown,
+): void {
+  if (value === undefined || value === null) return;
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => appendFormParam(sink, `${key}[${i}]`, item));
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      appendFormParam(sink, `${key}[${k}]`, v);
+    }
+    return;
+  }
+  sink(key, String(value));
 }
 
 /**

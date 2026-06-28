@@ -40,6 +40,8 @@ export interface RegisteredTool {
     headers?: Record<string, string>;
   };
   responseMapping?: Record<string, unknown>;
+  // JSON Schema of the response, served to clients as the tool's outputSchema.
+  outputSchema?: unknown;
 }
 
 @Injectable()

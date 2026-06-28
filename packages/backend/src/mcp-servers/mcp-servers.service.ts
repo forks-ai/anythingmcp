@@ -1,11 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { KgSkillService } from '../knowledge-graph/kg-skill.service';
+import { McpSessionManager } from './mcp-session.manager';
 
 @Injectable()
 export class McpServersService {
   private readonly logger = new Logger(McpServersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly kgSkills: KgSkillService,
+    private readonly sessionManager: McpSessionManager,
+  ) {}
 
   async findAllByUser(userId: string) {
     return this.prisma.mcpServerConfig.findMany({
@@ -122,6 +128,14 @@ export class McpServersService {
         }),
       ),
     ]);
+
+    // A server's connector assignment changed: live stateful sessions must
+    // pick up added/removed tools. Fire-and-forget; never fail the assignment.
+    this.sessionManager
+      .notifyToolsChanged()
+      .catch((e) =>
+        this.logger.warn(`MCP session notify failed: ${e.message}`),
+      );
   }
 
   async getConnectorIds(serverId: string): Promise<string[]> {
@@ -162,6 +176,14 @@ export class McpServersService {
         parts.push(`## ${sc.connector.name}\n${sc.connector.instructions}`);
       }
     }
+
+    // Compose applied skills (server-scoped + this server's connector-scoped)
+    // dynamically, so editing/deleting a skill takes effect immediately.
+    const skillsText = await this.kgSkills.activeSkillsText(
+      serverId,
+      serverConnectors.map((sc) => sc.connectorId),
+    );
+    if (skillsText) parts.push(skillsText);
 
     return parts.length > 0 ? parts.join('\n\n') : undefined;
   }

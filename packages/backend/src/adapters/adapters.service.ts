@@ -110,6 +110,7 @@ export class AdaptersService {
             parameters: tool.parameters as any,
             endpointMapping: tool.endpointMapping as any,
             responseMapping: tool.responseMapping as any,
+            outputSchema: ((tool as any).outputSchema ?? null) as any,
           },
         });
         toolsCreated++;

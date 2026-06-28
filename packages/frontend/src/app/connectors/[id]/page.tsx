@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { connectors, tools } from '@/lib/api';
+import { findDemoByTool } from '@/lib/demo-connectors';
 import { NavBar } from '@/components/nav-bar';
 import { Footer } from '@/components/footer';
 import { ToolEditor } from '@/components/tool-editor';
@@ -294,12 +295,13 @@ export default function ConnectorDetailPage() {
     }
   };
 
-  const handleTestTool = async (toolId: string) => {
+  const handleTestTool = async (toolId: string, paramsOverride?: unknown) => {
     if (!token) return;
     setTestRunning(true);
     setToolTestResult(null);
     try {
-      const params = JSON.parse(testParams);
+      const params =
+        paramsOverride !== undefined ? paramsOverride : JSON.parse(testParams);
       const result = await tools.test(id, toolId, params, token);
       setToolTestResult(result);
     } catch (err: any) {
@@ -308,6 +310,27 @@ export default function ConnectorDetailPage() {
       setTestRunning(false);
     }
   };
+
+  // Onboarding demo auto-run: arriving from /welcome with ?demoTool&autorun=1,
+  // open that tool's playground and fire a real call immediately so the user's
+  // very first action produces a successful result.
+  const demoRan = useRef(false);
+  useEffect(() => {
+    if (demoRan.current) return;
+    if (!token || !toolList.length) return;
+    const demoTool = searchParams.get('demoTool');
+    if (!demoTool || searchParams.get('autorun') !== '1') return;
+    const tool = toolList.find((t: any) => t.name === demoTool);
+    if (!tool) return;
+    demoRan.current = true;
+    const params = findDemoByTool(demoTool)?.params ?? {};
+    setTestingToolId(tool.id);
+    setTestParams(JSON.stringify(params, null, 2));
+    setMsg('Running your first tool call…');
+    void handleTestTool(tool.id, params);
+    window.history.replaceState({}, '', `/connectors/${id}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolList, token, searchParams, id]);
 
   const handleCreateTool = async (data: {
     name: string;
@@ -1132,6 +1155,26 @@ export default function ConnectorDetailPage() {
                                   </span>
                                 )}
                               </label>
+                              {toolTestResult && !toolTestResult.ok && typeof toolTestResult.hint === 'string' && (
+                                <div
+                                  className={`mb-2 p-2 rounded-md text-xs border ${
+                                    toolTestResult.kind === 'auth_failed'
+                                      ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
+                                      : 'bg-[var(--destructive-bg)] text-[var(--destructive-text)] border-[var(--destructive-border)]'
+                                  }`}
+                                >
+                                  <span className="font-semibold mr-1">
+                                    {toolTestResult.kind === 'auth_failed' && 'Credentials rejected:'}
+                                    {toolTestResult.kind === 'bad_request' && 'Invalid request:'}
+                                    {toolTestResult.kind === 'not_found' && 'Not found:'}
+                                    {toolTestResult.kind === 'rate_limited' && 'Rate limited:'}
+                                    {toolTestResult.kind === 'upstream_error' && 'Upstream error:'}
+                                    {toolTestResult.kind === 'unreachable' && 'Unreachable:'}
+                                    {toolTestResult.kind === 'error' && 'Failed:'}
+                                  </span>
+                                  {String(toolTestResult.hint)}
+                                </div>
+                              )}
                               <pre className="w-full border border-[var(--input)] rounded-md px-3 py-2 text-xs bg-[var(--muted)] font-mono overflow-auto max-h-40 min-h-[8rem]">
                                 {toolTestResult
                                   ? toolTestResult.ok

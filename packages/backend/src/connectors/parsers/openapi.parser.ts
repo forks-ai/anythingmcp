@@ -29,6 +29,13 @@ export interface ParsedTool {
     type: string;
     fields?: string[];
   };
+  /**
+   * JSON Schema of the tool's response, derived from the source format at import
+   * time (OpenAPI responses, Postman example bodies, GraphQL return type, …).
+   * Served to MCP clients as the tool's outputSchema and mined by the knowledge
+   * graph. Null/undefined when the format carries no response shape.
+   */
+  outputSchema?: Record<string, unknown> | null;
 }
 
 export interface ParsedSpec {
@@ -73,6 +80,14 @@ export class OpenApiParser {
     const declaredVersion = (rawSpec as { openapi?: string }).openapi || '';
     const isOpenApi31 = declaredVersion.startsWith('3.1');
 
+    // swagger-parser only recognises OAS 3.0.0–3.0.3; newer patch releases
+    // (3.0.4 is current as of 2024 — e.g. the canonical Swagger Petstore) are
+    // rejected as "Unsupported OpenAPI version" even though they're 3.0-compatible.
+    // Coerce the declared patch version down so validation/dereference accept it.
+    if (/^3\.0\.[4-9]/.test(declaredVersion) && (rawSpec as any).openapi) {
+      (rawSpec as any).openapi = '3.0.3';
+    }
+
     // For 3.1 docs, translate the JSON-Schema-2020-12 constructs we know break
     // the downstream extractor (nullable unions, const, examples plural, numeric
     // exclusiveMin/Max) into their 3.0 equivalents. This runs *before*
@@ -87,16 +102,22 @@ export class OpenApiParser {
         ? await SwaggerParser.dereference(rawSpec as any)
         : await SwaggerParser.validate(rawSpec as any);
     } catch (err: any) {
-      // swagger-parser lumps "version unsupported" with all other validation
-      // errors. Translate to a clearer message; keep the original details in
-      // the cause so support can still see the full reason.
+      // swagger-parser's bundled validator only knows OAS 3.0.0–3.0.3, so newer
+      // patch releases (e.g. 3.0.4, current as of 2024) are rejected as
+      // "Unsupported OpenAPI version". Dereference doesn't validate the version,
+      // so fall back to it (same path as 3.1) to still extract tools.
       if (err?.message?.includes('Unsupported OpenAPI version')) {
-        throw new Error(
-          'This OpenAPI document declares a version we don\'t fully support. ' +
-            'Try with an OpenAPI 3.0 spec, or contact support if the problem persists.',
-        );
+        try {
+          api = await SwaggerParser.dereference(rawSpec as any);
+        } catch {
+          throw new Error(
+            'This OpenAPI document declares a version we don\'t fully support. ' +
+              'Try with an OpenAPI 3.0 spec, or contact support if the problem persists.',
+          );
+        }
+      } else {
+        throw err;
       }
-      throw err;
     }
 
     const tools = this.extractTools(api);
@@ -395,7 +416,109 @@ export class OpenApiParser {
     if (typeof operation.operationId === 'string' && operation.operationId.length > 0) {
       result.operationId = operation.operationId;
     }
+    const outputSchema = this.extractOutputSchema(operation, api);
+    if (outputSchema) result.outputSchema = outputSchema;
     return result;
+  }
+
+  /**
+   * Derive a JSON Schema for the tool's response from the operation's success
+   * response (first 2xx, else `default`). Returns only object/array shapes —
+   * scalar/empty responses carry no field structure worth serving.
+   */
+  private extractOutputSchema(
+    operation: any,
+    api: any,
+  ): Record<string, unknown> | undefined {
+    const responses = operation?.responses;
+    if (!responses || typeof responses !== 'object') return undefined;
+
+    const key =
+      Object.keys(responses).find((k) => /^2\d\d$/.test(k) || /^2xx$/i.test(k)) ??
+      (responses.default ? 'default' : undefined);
+    if (!key) return undefined;
+
+    const resp = this.resolveRef(responses[key], api);
+    const content = resp?.content;
+    if (!content || typeof content !== 'object') return undefined;
+
+    const jsonKey = Object.keys(content).find(
+      (k) => k === 'application/json' || /[+/]json$/i.test(k),
+    );
+    const schema = jsonKey ? content[jsonKey]?.schema : undefined;
+    if (!schema) return undefined;
+
+    const out = this.openApiSchemaToJsonSchema(schema, api, 0);
+    return out && (out.type === 'object' || out.type === 'array') ? out : undefined;
+  }
+
+  /** Convert an OpenAPI schema (with $ref/allOf/oneOf) to a plain JSON Schema. */
+  private openApiSchemaToJsonSchema(
+    schema: any,
+    api: any,
+    depth: number,
+  ): Record<string, unknown> | undefined {
+    if (!schema || typeof schema !== 'object' || depth > 6) return undefined;
+
+    if (schema.$ref) {
+      const resolved = this.resolveRef(schema, api);
+      if (!resolved || resolved === schema) return undefined;
+      return this.openApiSchemaToJsonSchema(resolved, api, depth + 1);
+    }
+
+    // Composition: merge object props across allOf; pick the first branch of
+    // oneOf/anyOf (good enough to surface field names).
+    const combos = schema.allOf || schema.oneOf || schema.anyOf;
+    if (Array.isArray(combos) && combos.length) {
+      if (schema.allOf) {
+        const props: Record<string, unknown> = {};
+        for (const sub of combos) {
+          const s = this.openApiSchemaToJsonSchema(sub, api, depth + 1);
+          if (s?.properties) Object.assign(props, s.properties);
+        }
+        return Object.keys(props).length
+          ? { type: 'object', properties: props, additionalProperties: true }
+          : undefined;
+      }
+      return this.openApiSchemaToJsonSchema(combos[0], api, depth + 1);
+    }
+
+    const type = schema.type || (schema.properties ? 'object' : schema.items ? 'array' : undefined);
+
+    if (type === 'array' || schema.items) {
+      const items = this.openApiSchemaToJsonSchema(schema.items, api, depth + 1);
+      return items ? { type: 'array', items } : { type: 'array' };
+    }
+
+    if (type === 'object' || schema.properties) {
+      const properties: Record<string, unknown> = {};
+      let count = 0;
+      for (const [k, v] of Object.entries(schema.properties || {})) {
+        if (count++ >= 200) break;
+        properties[k] =
+          this.openApiSchemaToJsonSchema(v, api, depth + 1) ?? {
+            type: (v as any)?.type || 'string',
+          };
+      }
+      return { type: 'object', properties, additionalProperties: true };
+    }
+
+    return type ? { type } : undefined;
+  }
+
+  /** Resolve a local `$ref` against the (possibly non-dereferenced) spec. */
+  private resolveRef(node: any, api: any): any {
+    if (!node || typeof node !== 'object' || !node.$ref) return node;
+    if (typeof node.$ref !== 'string' || !node.$ref.startsWith('#/')) return node;
+    const segments = node.$ref.slice(2).split('/').map((s: string) =>
+      s.replace(/~1/g, '/').replace(/~0/g, '~'),
+    );
+    let resolved: any = api;
+    for (const seg of segments) {
+      resolved = resolved?.[seg];
+      if (resolved == null) return undefined;
+    }
+    return resolved;
   }
 
   private generateToolName(

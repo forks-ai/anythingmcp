@@ -1,0 +1,293 @@
+import { createHash } from 'crypto';
+import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../common/prisma.service';
+import { buildStaticGraph } from './static/static-extractor';
+import { StaticGraph, ToolLike } from './static/types';
+
+/**
+ * Persists the STATIC knowledge-graph layer for a connector, org-scoped.
+ *
+ * Pure extraction lives in ./static (no DB). This service maps the draft graph
+ * onto kg_nodes / kg_edges, merging with whatever the observational layer has
+ * already learned: it never downgrades an OBSERVED/MANUAL node or edge back to
+ * STATIC, and it sweeps stale STATIC entries on re-sync. Idempotent: a stable
+ * hash of the connector's tool surface short-circuits unchanged re-syncs.
+ *
+ * Tenant isolation is enforced at the application layer — every write carries
+ * the connector's organizationId; nothing crosses orgs.
+ */
+@Injectable()
+export class KgStaticService {
+  private readonly logger = new Logger(KgStaticService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /** Generic per-workspace boolean flag. */
+  async getFlag(organizationId: string, key: string, defaultValue: boolean): Promise<boolean> {
+    const row = await this.prisma.orgSettings.findUnique({
+      where: { organizationId_key: { organizationId, key } },
+      select: { value: true },
+    });
+    if (!row) return defaultValue;
+    return row.value === 'true';
+  }
+
+  async setFlag(organizationId: string, key: string, value: boolean): Promise<void> {
+    const v = value ? 'true' : 'false';
+    await this.prisma.orgSettings.upsert({
+      where: { organizationId_key: { organizationId, key } },
+      create: { organizationId, key, value: v },
+      update: { value: v },
+    });
+  }
+
+  /** Whether the knowledge graph is enabled for this workspace (default true). */
+  isEnabled(organizationId: string): Promise<boolean> {
+    return this.getFlag(organizationId, 'kg_enabled', true);
+  }
+
+  setEnabled(organizationId: string, enabled: boolean): Promise<void> {
+    return this.setFlag(organizationId, 'kg_enabled', enabled);
+  }
+
+  /** Build + persist the static graph for one connector. */
+  async syncConnector(
+    connectorId: string,
+    opts?: { force?: boolean },
+  ): Promise<{ nodes: number; edges: number; skipped: boolean }> {
+    const connector = await this.prisma.connector.findUnique({
+      where: { id: connectorId },
+      select: {
+        id: true,
+        organizationId: true,
+        tools: {
+          select: {
+            name: true,
+            description: true,
+            parameters: true,
+            outputSchema: true,
+          },
+        },
+      },
+    });
+    if (!connector) return { nodes: 0, edges: 0, skipped: true };
+
+    const organizationId = connector.organizationId;
+    if (!(await this.isEnabled(organizationId))) {
+      return { nodes: 0, edges: 0, skipped: true };
+    }
+    const tools: ToolLike[] = connector.tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters as ToolLike['parameters'],
+      outputSchema: t.outputSchema as ToolLike['outputSchema'],
+    }));
+    const slug = deriveSlug(connector.tools.map((t) => t.name));
+    const graph = buildStaticGraph(slug, tools);
+    const hash = hashGraph(graph);
+
+    const state = await this.prisma.kgConnectorState.findUnique({
+      where: { connectorId },
+      select: { staticHash: true },
+    });
+    if (!opts?.force && state?.staticHash === hash) {
+      return { nodes: graph.nodes.length, edges: graph.edges.length, skipped: true };
+    }
+
+    await this.persist(organizationId, connectorId, graph);
+
+    await this.prisma.kgConnectorState.upsert({
+      where: { connectorId },
+      create: {
+        organizationId,
+        connectorId,
+        staticHash: hash,
+        lastStaticAt: new Date(),
+      },
+      update: { staticHash: hash, lastStaticAt: new Date() },
+    });
+
+    this.logger.debug(
+      `KG static sync ${connectorId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges`,
+    );
+    return { nodes: graph.nodes.length, edges: graph.edges.length, skipped: false };
+  }
+
+  /** Sync every connector in an organization. Returns aggregate counts. */
+  async syncOrganization(
+    organizationId: string,
+    opts?: { force?: boolean },
+  ): Promise<{ connectors: number; nodes: number; edges: number }> {
+    if (!(await this.isEnabled(organizationId))) {
+      return { connectors: 0, nodes: 0, edges: 0 };
+    }
+    const connectors = await this.prisma.connector.findMany({
+      where: { organizationId },
+      select: { id: true },
+    });
+    let nodes = 0;
+    let edges = 0;
+    for (const c of connectors) {
+      const r = await this.syncConnector(c.id, opts);
+      nodes += r.nodes;
+      edges += r.edges;
+    }
+    return { connectors: connectors.length, nodes, edges };
+  }
+
+  /** Upsert nodes + edges and sweep stale STATIC entries, in one transaction. */
+  private async persist(
+    organizationId: string,
+    connectorId: string,
+    graph: StaticGraph,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      // 1) Upsert entity nodes.
+      for (const n of graph.nodes) {
+        const existing = await tx.kgNode.findUnique({
+          where: {
+            organizationId_connectorId_entity: {
+              organizationId,
+              connectorId,
+              entity: n.entity,
+            },
+          },
+          select: { id: true, confidence: true },
+        });
+        if (!existing) {
+          await tx.kgNode.create({
+            data: {
+              organizationId,
+              connectorId,
+              entity: n.entity,
+              label: n.label,
+              fields: n.fields as any,
+              outputFields: n.outputFields as any,
+              toolNames: n.toolNames as any,
+              source: 'STATIC',
+              confidence: n.confidence,
+            },
+          });
+        } else {
+          // Refresh the surface; never lower a confidence the observational
+          // layer may have raised, and leave its source untouched.
+          await tx.kgNode.update({
+            where: { id: existing.id },
+            data: {
+              label: n.label,
+              fields: n.fields as any,
+              outputFields: n.outputFields as any,
+              toolNames: n.toolNames as any,
+              confidence: Math.max(existing.confidence, n.confidence),
+              lastSeenAt: new Date(),
+            },
+          });
+        }
+      }
+
+      // 2) Sweep STATIC nodes that no longer exist in the tool surface.
+      const keepEntities = graph.nodes.map((n) => n.entity);
+      await tx.kgNode.deleteMany({
+        where: {
+          organizationId,
+          connectorId,
+          source: 'STATIC',
+          entity: { notIn: keepEntities.length ? keepEntities : ['__none__'] },
+        },
+      });
+
+      // 3) Resolve entity -> nodeId for this connector.
+      const nodeRows = await tx.kgNode.findMany({
+        where: { organizationId, connectorId },
+        select: { id: true, entity: true },
+      });
+      const idByEntity = new Map(nodeRows.map((r) => [r.entity, r.id]));
+
+      // 4) Upsert edges; track which ones we touched to sweep the rest.
+      const keptEdgeIds: string[] = [];
+      for (const e of graph.edges) {
+        const sourceNodeId = idByEntity.get(e.sourceEntity);
+        const targetNodeId = idByEntity.get(e.targetEntity);
+        if (!sourceNodeId || !targetNodeId) continue;
+
+        const existing = await tx.kgEdge.findUnique({
+          where: {
+            organizationId_sourceNodeId_targetNodeId_kind: {
+              organizationId,
+              sourceNodeId,
+              targetNodeId,
+              kind: e.kind,
+            },
+          },
+          select: { id: true, confidence: true },
+        });
+        if (!existing) {
+          const created = await tx.kgEdge.create({
+            data: {
+              organizationId,
+              sourceNodeId,
+              targetNodeId,
+              kind: e.kind,
+              matchKey: e.matchKey,
+              source: 'STATIC',
+              confidence: e.confidence,
+            },
+            select: { id: true },
+          });
+          keptEdgeIds.push(created.id);
+        } else {
+          await tx.kgEdge.update({
+            where: { id: existing.id },
+            data: {
+              matchKey: e.matchKey,
+              confidence: Math.max(existing.confidence, e.confidence),
+              lastSeenAt: new Date(),
+            },
+          });
+          keptEdgeIds.push(existing.id);
+        }
+      }
+
+      // 5) Sweep STATIC edges of this connector we didn't just (re)write.
+      await tx.kgEdge.deleteMany({
+        where: {
+          organizationId,
+          source: 'STATIC',
+          sourceNode: { connectorId },
+          id: { notIn: keptEdgeIds.length ? keptEdgeIds : ['__none__'] },
+        },
+      });
+    });
+  }
+}
+
+/** The shared leading token(s) of a connector's tool names, used as the slug. */
+export function deriveSlug(toolNames: string[]): string {
+  if (!toolNames.length) return '';
+  const split = toolNames.map((n) => n.split('_'));
+  let prefix = split[0];
+  for (const tokens of split) {
+    let i = 0;
+    while (i < prefix.length && i < tokens.length && prefix[i] === tokens[i]) i++;
+    prefix = prefix.slice(0, i);
+    if (!prefix.length) break;
+  }
+  return prefix.join('_');
+}
+
+/** Stable content hash of the static graph for incremental skip. */
+function hashGraph(graph: StaticGraph): string {
+  const canonical = {
+    nodes: [...graph.nodes]
+      .map((n) => ({
+        e: n.entity,
+        f: n.fields.map((f) => `${f.name}:${f.type}`).sort(),
+        o: [...n.outputFields].sort(),
+      }))
+      .sort((a, b) => a.e.localeCompare(b.e)),
+    edges: [...graph.edges]
+      .map((e) => `${e.sourceEntity}|${e.targetEntity}|${e.kind}|${e.matchKey ?? ''}`)
+      .sort(),
+  };
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}

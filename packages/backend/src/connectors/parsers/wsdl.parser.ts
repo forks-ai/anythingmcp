@@ -104,7 +104,7 @@ export class WsdlParser {
       .replace(/_+/g, '_')
       .toLowerCase();
 
-    return {
+    const tool: ParsedTool = {
       name,
       description: `SOAP operation: ${operationName} on ${serviceName}/${portName}`,
       parameters: {
@@ -122,6 +122,40 @@ export class WsdlParser {
         ...(targetNamespace ? { targetNamespace } : {}),
       },
     };
+
+    const outputSchema = this.soapShapeToJsonSchema(operation.output, 0);
+    if (outputSchema?.type === 'object' && outputSchema.properties &&
+        Object.keys(outputSchema.properties as object).length) {
+      tool.outputSchema = outputSchema;
+    }
+    return tool;
+  }
+
+  /**
+   * Convert a soap `describe()` output shape into a JSON Schema. The library
+   * represents complex types as nested objects (field → type-string or nested
+   * object); scalars are type strings.
+   */
+  private soapShapeToJsonSchema(
+    node: any,
+    depth: number,
+  ): Record<string, unknown> | undefined {
+    if (node == null || depth > 6) return undefined;
+    if (typeof node === 'string') {
+      return { type: this.soapTypeToJsonType(node) };
+    }
+    if (typeof node !== 'object') return undefined;
+
+    const properties: Record<string, unknown> = {};
+    let count = 0;
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'targetNSAlias' || key === 'targetNamespace') continue;
+      if (count++ >= 200) break;
+      properties[key] = this.soapShapeToJsonSchema(value, depth + 1) ?? {
+        type: 'string',
+      };
+    }
+    return { type: 'object', properties, additionalProperties: true };
   }
 
   private soapTypeToJsonType(soapType: string): string {
