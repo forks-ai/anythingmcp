@@ -14,6 +14,14 @@ type JsonSchema = Record<string, any>;
 
 const MAX_DEPTH = 6;
 
+/**
+ * Property names that must never be written from a remote value: assigning to
+ * `obj['__proto__']` (etc.) pollutes the prototype. The inferred schema is built
+ * from upstream API responses, which are untrusted, so we drop these keys.
+ */
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const isUnsafeKey = (k: string): boolean => UNSAFE_KEYS.has(k);
+
 /** Infer a JSON Schema from a sample value (objects/arrays/primitives). */
 export function inferJsonSchema(value: unknown, depth = 0): JsonSchema | null {
   if (value === null || value === undefined) return null;
@@ -32,6 +40,7 @@ export function inferJsonSchema(value: unknown, depth = 0): JsonSchema | null {
   if (typeof value === 'object') {
     const properties: Record<string, JsonSchema> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (isUnsafeKey(k)) continue; // prototype-pollution guard (remote keys)
       const s = inferJsonSchema(v, depth + 1);
       if (s) properties[k] = s;
       else properties[k] = {}; // null/unknown leaf
@@ -51,6 +60,7 @@ export function mergeSchema(a: JsonSchema | null, b: JsonSchema | null): JsonSch
   if (a.type === 'object' && b.type === 'object') {
     const properties = { ...(a.properties ?? {}) };
     for (const [k, v] of Object.entries(b.properties ?? {})) {
+      if (isUnsafeKey(k)) continue; // prototype-pollution guard (remote keys)
       properties[k] = properties[k] ? mergeSchema(properties[k], v as JsonSchema) : v;
     }
     return { type: 'object', properties, additionalProperties: true };
@@ -76,6 +86,9 @@ export function outputSchemaToZodShape(
   const keys = Object.keys(s.properties);
   if (keys.length === 0) return null;
   const shape: Record<string, z.ZodTypeAny> = {};
-  for (const k of keys) shape[k] = z.any();
+  for (const k of keys) {
+    if (isUnsafeKey(k)) continue; // prototype-pollution guard (remote keys)
+    shape[k] = z.any();
+  }
   return shape;
 }
