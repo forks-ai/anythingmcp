@@ -68,6 +68,14 @@ services:
       # a private docker IP, which the guard blocks by default). Harmless on
       # self-host (no such host on their network).
       - SSRF_ALLOWED_HOSTS=${SSRF_ALLOWED_HOSTS:-db-rest}
+      # Knowledge Graph — AI (LLM) features. Off unless KG_LLM_ENABLED=true AND a
+      # provider key are set; the per-workspace toggle still gates actual usage.
+      - KG_LLM_ENABLED=${KG_LLM_ENABLED:-false}
+      - KG_LLM_PROVIDER=${KG_LLM_PROVIDER:-}
+      - KG_LLM_MODEL=${KG_LLM_MODEL:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - KG_LLM_REDACT_INTENTS=${KG_LLM_REDACT_INTENTS:-true}
     depends_on:
       postgres:
         condition: service_healthy
