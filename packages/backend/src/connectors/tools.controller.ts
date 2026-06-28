@@ -26,6 +26,7 @@ import { PrismaService } from '../common/prisma.service';
 import { McpServerService } from '../mcp-server/mcp-server.service';
 import { ConnectorsService } from './connectors.service';
 import { inferJsonSchema } from './output-schema.util';
+import { classifyToolExecutionError } from './connector-error.util';
 
 class CreateToolDto {
   @ApiProperty({
@@ -396,6 +397,11 @@ export class ToolsController {
       }
       const { AxiosError: AxiosErr } = await import('axios');
       if (err instanceof AxiosErr && err.response) {
+        const { kind, hint } = classifyToolExecutionError({
+          status: err.response.status,
+          authType: tool.connector.authType,
+          message: err.message,
+        });
         return {
           ok: false,
           durationMs,
@@ -403,12 +409,20 @@ export class ToolsController {
           status: err.response.status,
           statusText: err.response.statusText,
           responseBody: err.response.data,
+          kind,
+          hint,
         };
       }
+      const { kind, hint } = classifyToolExecutionError({
+        authType: tool.connector.authType,
+        message: err.message,
+      });
       return {
         ok: false,
         durationMs,
         error: err.message || 'Execution failed',
+        kind,
+        hint,
       };
     }
   }

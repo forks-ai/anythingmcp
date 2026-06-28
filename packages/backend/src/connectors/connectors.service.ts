@@ -10,6 +10,7 @@ import { McpClientEngine } from './engines/mcp-client.engine';
 import { encrypt, decrypt } from '../common/crypto/encryption.util';
 import { getRequiredSecret } from '../common/secrets.util';
 import { resolveInternalDbRestUrl } from '../common/db-rest.util';
+import { normalizeConnectorBaseUrl } from '../common/url.util';
 import { resolveAdapterIcon } from './connector-icon.util';
 
 @Injectable()
@@ -103,13 +104,15 @@ export class ConnectorsService {
       ? encrypt(JSON.stringify(data.authConfig), this.encryptionKey)
       : null;
 
+    const baseUrl = normalizeConnectorBaseUrl(data.baseUrl, data.type);
+
     return this.prisma.connector.create({
       data: {
         userId,
         organizationId,
         name: data.name,
         type: data.type,
-        baseUrl: data.baseUrl,
+        baseUrl,
         authType: data.authType || 'NONE',
         authConfig: encryptedAuth,
         specUrl: data.specUrl,
@@ -135,7 +138,7 @@ export class ConnectorsService {
       instructions: string;
     }>,
   ): Promise<Connector> {
-    await this.findById(id);
+    const existing = await this.findById(id);
 
     const updateData: any = { ...data };
     if (data.authConfig) {
@@ -143,6 +146,9 @@ export class ConnectorsService {
         JSON.stringify(data.authConfig),
         this.encryptionKey,
       );
+    }
+    if (data.baseUrl !== undefined) {
+      updateData.baseUrl = normalizeConnectorBaseUrl(data.baseUrl, existing.type);
     }
 
     return this.prisma.connector.update({

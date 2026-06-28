@@ -1132,6 +1132,26 @@ export default function ConnectorDetailPage() {
                                   </span>
                                 )}
                               </label>
+                              {toolTestResult && !toolTestResult.ok && typeof toolTestResult.hint === 'string' && (
+                                <div
+                                  className={`mb-2 p-2 rounded-md text-xs border ${
+                                    toolTestResult.kind === 'auth_failed'
+                                      ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
+                                      : 'bg-[var(--destructive-bg)] text-[var(--destructive-text)] border-[var(--destructive-border)]'
+                                  }`}
+                                >
+                                  <span className="font-semibold mr-1">
+                                    {toolTestResult.kind === 'auth_failed' && 'Credentials rejected:'}
+                                    {toolTestResult.kind === 'bad_request' && 'Invalid request:'}
+                                    {toolTestResult.kind === 'not_found' && 'Not found:'}
+                                    {toolTestResult.kind === 'rate_limited' && 'Rate limited:'}
+                                    {toolTestResult.kind === 'upstream_error' && 'Upstream error:'}
+                                    {toolTestResult.kind === 'unreachable' && 'Unreachable:'}
+                                    {toolTestResult.kind === 'error' && 'Failed:'}
+                                  </span>
+                                  {String(toolTestResult.hint)}
+                                </div>
+                              )}
                               <pre className="w-full border border-[var(--input)] rounded-md px-3 py-2 text-xs bg-[var(--muted)] font-mono overflow-auto max-h-40 min-h-[8rem]">
                                 {toolTestResult
                                   ? toolTestResult.ok
