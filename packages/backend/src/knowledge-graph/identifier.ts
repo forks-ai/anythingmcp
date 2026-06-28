@@ -46,6 +46,9 @@ export interface IdentifierOccurrence {
   value: string;
 }
 
+/** Max JSON nodes to walk per payload (bounds CPU on huge bulk responses). */
+const MAX_WALK_NODES = 5000;
+
 /**
  * Walk an arbitrary JSON value and yield (leaf-field, identifier-value) pairs.
  * Uses the leaf key as the field name (FK fields are leaf keys like customer_id).
@@ -53,8 +56,13 @@ export interface IdentifierOccurrence {
 export function extractIdentifiers(input: unknown): IdentifierOccurrence[] {
   const out: IdentifierOccurrence[] = [];
   const seen = new Set<string>();
+  // Bound work on pathologically large payloads (e.g. a bulk DB dump): a few
+  // thousand nodes is plenty to capture representative identifiers, and stops a
+  // single huge response from pinning the event loop.
+  let visited = 0;
 
   const walk = (node: unknown, key: string | null): void => {
+    if (visited++ > MAX_WALK_NODES) return;
     if (node === null || node === undefined) return;
     if (Array.isArray(node)) {
       for (const item of node) walk(item, key);
@@ -89,7 +97,9 @@ export function extractIdentifiers(input: unknown): IdentifierOccurrence[] {
  */
 export function extractFieldNames(input: unknown): string[] {
   const out = new Set<string>();
+  let visited = 0;
   const walk = (node: unknown): void => {
+    if (visited++ > MAX_WALK_NODES) return;
     if (node === null || node === undefined) return;
     if (Array.isArray(node)) {
       for (const item of node) walk(item);

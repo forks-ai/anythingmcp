@@ -81,15 +81,9 @@ export class KgObservationalService {
       s.add(r.entity);
     }
 
-    const newHashes = new Set<string>();
-    const valueRows: Array<{
-      organizationId: string;
-      connectorId: string;
-      valueHash: string;
-      entity: string;
-      field: string;
-      direction: string;
-    }> = [];
+    // Edges accumulate across pages; the raw value rows are flushed per page
+    // (below) so the in-memory set never grows to the size of the whole batch.
+    let edges = 0;
     // references edges mined from response field names: key -> details.
     const refBumps = new Map<
       string,
@@ -103,7 +97,7 @@ export class KgObservationalService {
     // Page through invocations so we never hold more than CHUNK full input/output
     // payloads in memory at once. A busy org's payloads can be megabytes each;
     // loading thousands together previously OOM'd the backend.
-    const CHUNK = 200;
+    const CHUNK = 100;
     let processed = 0;
     while (processed < MAX_INVOCATIONS_PER_RUN) {
       const page = await this.prisma.toolInvocation.findMany({
@@ -123,6 +117,17 @@ export class KgObservationalService {
       });
       if (page.length === 0) break;
       processed += page.length;
+
+      // Per-page value occurrences, flushed at the end of each page.
+      const newHashes = new Set<string>();
+      const valueRows: Array<{
+        organizationId: string;
+        connectorId: string;
+        valueHash: string;
+        entity: string;
+        field: string;
+        direction: string;
+      }> = [];
 
       for (const inv of page) {
       const connectorId = inv.connectorId!;
@@ -185,16 +190,19 @@ export class KgObservationalService {
         }
       }
       } // for (const inv of page)
+
+      // Flush this page's value occurrences and correlate immediately. correlate
+      // reads kgValueSeen (which now includes earlier pages), so cross-page
+      // produces_consumes / same_identity links are still found.
+      if (valueRows.length) {
+        await this.prisma.kgValueSeen.createMany({ data: valueRows });
+      }
+      if (newHashes.size) {
+        edges += await this.correlate(organizationId, [...newHashes]);
+      }
+
       if (page.length < CHUNK) break;
     } // while pages
-
-    if (valueRows.length) {
-      await this.prisma.kgValueSeen.createMany({ data: valueRows });
-    }
-
-    let edges = newHashes.size
-      ? await this.correlate(organizationId, [...newHashes])
-      : 0;
 
     // Apply references edges mined from response shapes.
     const refCache = new Map<string, string>();
