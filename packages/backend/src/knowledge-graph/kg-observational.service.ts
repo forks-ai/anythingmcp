@@ -63,24 +63,8 @@ export class KgObservationalService {
         ? new Date(0)
         : new Date(Math.min(...watermarkTimes));
 
-    const invocations = await this.prisma.toolInvocation.findMany({
-      where: {
-        organizationId,
-        connectorId: { not: null },
-        createdAt: { gt: floor },
-      },
-      select: {
-        id: true,
-        connectorId: true,
-        createdAt: true,
-        input: true,
-        output: true,
-        intent: true,
-        tool: { select: { name: true } },
-      },
-      orderBy: { createdAt: 'asc' },
-      take: MAX_INVOCATIONS_PER_RUN,
-    });
+    // Invocations are streamed in pages inside the loop below (see CHUNK) so we
+    // never hold thousands of full input/output payloads in memory at once.
 
     // Existing entities per connector, so we can link a response field name to a
     // known entity (FK rule applied to the response shape, not just values).
@@ -116,7 +100,31 @@ export class KgObservationalService {
     const intentGroups = new Map<string, Set<string>>();
     const maxTsByConnector = new Map<string, Date>();
 
-    for (const inv of invocations) {
+    // Page through invocations so we never hold more than CHUNK full input/output
+    // payloads in memory at once. A busy org's payloads can be megabytes each;
+    // loading thousands together previously OOM'd the backend.
+    const CHUNK = 200;
+    let processed = 0;
+    while (processed < MAX_INVOCATIONS_PER_RUN) {
+      const page = await this.prisma.toolInvocation.findMany({
+        where: { organizationId, connectorId: { not: null }, createdAt: { gt: floor } },
+        select: {
+          id: true,
+          connectorId: true,
+          createdAt: true,
+          input: true,
+          output: true,
+          intent: true,
+          tool: { select: { name: true } },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        skip: processed,
+        take: Math.min(CHUNK, MAX_INVOCATIONS_PER_RUN - processed),
+      });
+      if (page.length === 0) break;
+      processed += page.length;
+
+      for (const inv of page) {
       const connectorId = inv.connectorId!;
       // Skip invocations already covered by this connector's watermark.
       const wm = watermark.get(connectorId);
@@ -176,7 +184,9 @@ export class KgObservationalService {
           }
         }
       }
-    }
+      } // for (const inv of page)
+      if (page.length < CHUNK) break;
+    } // while pages
 
     if (valueRows.length) {
       await this.prisma.kgValueSeen.createMany({ data: valueRows });
@@ -239,9 +249,9 @@ export class KgObservationalService {
     }
 
     this.logger.debug(
-      `KG observational ${organizationId}: ${invocations.length} invocations, ${edges} edges`,
+      `KG observational ${organizationId}: ${processed} invocations, ${edges} edges`,
     );
-    return { invocations: invocations.length, edges };
+    return { invocations: processed, edges };
   }
 
   /** Correlate value occurrences into produces_consumes + same_identity edges. */
