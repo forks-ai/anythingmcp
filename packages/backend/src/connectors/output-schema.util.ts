@@ -14,12 +14,15 @@ type JsonSchema = Record<string, any>;
 
 const MAX_DEPTH = 6;
 
-// Property names that must never be written from a remote value: assigning to
-// `obj['__proto__']` (etc.) pollutes the prototype. The inferred schema is built
-// from upstream API responses, which are untrusted. Guarded at each write with a
-// direct `=== '__proto__' || …` comparison (the form static analysis recognizes
-// as a sanitizer), and the accumulators use `Object.create(null)` so there is no
-// prototype to pollute even if a guard were ever missed.
+// The inferred schema is built from upstream API responses (untrusted), whose
+// keys become property names. To avoid prototype-pollution / property-injection
+// we (a) drop dangerous keys and (b) build every object via Object.fromEntries
+// rather than a computed-property write (`obj[key] = …`), so there is no
+// injectable assignment sink at all.
+const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+function safeKey(k: string): boolean {
+  return !DANGEROUS_KEYS.includes(k);
+}
 
 /** Infer a JSON Schema from a sample value (objects/arrays/primitives). */
 export function inferJsonSchema(value: unknown, depth = 0): JsonSchema | null {
@@ -37,14 +40,10 @@ export function inferJsonSchema(value: unknown, depth = 0): JsonSchema | null {
   }
 
   if (typeof value === 'object') {
-    const properties: Record<string, JsonSchema> = Object.create(null);
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
-      const s = inferJsonSchema(v, depth + 1);
-      if (s) properties[k] = s;
-      else properties[k] = {}; // null/unknown leaf
-    }
-    return { type: 'object', properties, additionalProperties: true };
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([k]) => safeKey(k))
+      .map(([k, v]) => [k, inferJsonSchema(v, depth + 1) ?? {}] as const);
+    return { type: 'object', properties: Object.fromEntries(entries), additionalProperties: true };
   }
 
   if (typeof value === 'number') return { type: Number.isInteger(value) ? 'integer' : 'number' };
@@ -57,15 +56,15 @@ export function mergeSchema(a: JsonSchema | null, b: JsonSchema | null): JsonSch
   if (!a) return b ?? {};
   if (!b) return a;
   if (a.type === 'object' && b.type === 'object') {
-    const properties: Record<string, JsonSchema> = Object.assign(
-      Object.create(null),
-      a.properties ?? {},
+    const merged = new Map<string, JsonSchema>(
+      Object.entries((a.properties ?? {}) as Record<string, JsonSchema>).filter(([k]) => safeKey(k)),
     );
-    for (const [k, v] of Object.entries(b.properties ?? {})) {
-      if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
-      properties[k] = properties[k] ? mergeSchema(properties[k], v as JsonSchema) : (v as JsonSchema);
+    for (const [k, v] of Object.entries((b.properties ?? {}) as Record<string, JsonSchema>)) {
+      if (!safeKey(k)) continue;
+      const existing = merged.get(k);
+      merged.set(k, existing ? mergeSchema(existing, v) : v);
     }
-    return { type: 'object', properties, additionalProperties: true };
+    return { type: 'object', properties: Object.fromEntries(merged), additionalProperties: true };
   }
   if (a.type === 'array' && b.type === 'array') {
     return { type: 'array', items: mergeSchema(a.items ?? null, b.items ?? null) };
@@ -85,12 +84,9 @@ export function outputSchemaToZodShape(
   if (!s || s.type !== 'object' || !s.properties || typeof s.properties !== 'object') {
     return null;
   }
-  const keys = Object.keys(s.properties);
-  if (keys.length === 0) return null;
-  const shape: Record<string, z.ZodTypeAny> = Object.create(null);
-  for (const k of keys) {
-    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
-    shape[k] = z.any();
-  }
-  return shape;
+  const entries = Object.keys(s.properties)
+    .filter(safeKey)
+    .map((k) => [k, z.any()] as const);
+  if (entries.length === 0) return null;
+  return Object.fromEntries(entries);
 }
