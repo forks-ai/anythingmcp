@@ -25,7 +25,7 @@ export default function AnalyticsPage() {
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
-    Promise.all([audit.breakdowns(token, days), audit.analytics(token)])
+    Promise.all([audit.breakdowns(token, days), audit.analytics(token, days)])
       .then(([b, a]) => {
         setBd(b);
         setAn(a);
@@ -85,7 +85,7 @@ export default function AnalyticsPage() {
 
             {/* Daily timeline */}
             {an && (
-              <Section title="Invocations (last 7 days)">
+              <Section title={`Invocations (last ${bd.days} days)`}>
                 <DailyTimeline daily={an.daily} />
               </Section>
             )}
@@ -134,11 +134,14 @@ function DailyTimeline({
   daily: Array<{ date: string; success: number; error: number; timeout: number }>;
 }) {
   const max = Math.max(1, ...daily.map((d) => d.success + d.error + d.timeout));
+  // Thin the x-axis labels so they don't overlap on 30/90-day ranges.
+  const labelEvery = Math.ceil(daily.length / 8);
   return (
-    <div className="flex items-end gap-2 h-40">
-      {daily.map((d) => {
+    <div className="flex items-end gap-1 h-40">
+      {daily.map((d, i) => {
         const total = d.success + d.error + d.timeout;
         const h = (n: number) => `${(n / max) * 100}%`;
+        const showLabel = i % labelEvery === 0 || i === daily.length - 1;
         return (
           <div key={d.date} className="flex-1 flex flex-col items-center gap-1 h-full justify-end" title={`${d.date}: ${total} calls`}>
             <div className="w-full flex flex-col justify-end h-full">
@@ -147,7 +150,9 @@ function DailyTimeline({
               {d.success > 0 && <div style={{ height: h(d.success) }} className="w-full bg-[var(--brand)] rounded-b-sm" />}
               {total === 0 && <div className="w-full h-px bg-[var(--border)]" />}
             </div>
-            <span className="text-[10px] text-[var(--muted-foreground)]">{d.date.slice(5)}</span>
+            <span className="text-[10px] text-[var(--muted-foreground)] h-3 whitespace-nowrap">
+              {showLabel ? d.date.slice(5) : ''}
+            </span>
           </div>
         );
       })}

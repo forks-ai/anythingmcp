@@ -49,8 +49,12 @@ export class AuditController {
       'Returns 7-day daily breakdown of invocations by status, ' +
       'top 10 most-used tools, success rate, and average duration.',
   })
-  async getAnalytics(@Req() req: any) {
-    return this.auditService.getAnalytics(req.user.organizationId);
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  async getAnalytics(@Req() req: any, @Query('days') days?: string) {
+    return this.auditService.getAnalytics(
+      req.user.organizationId,
+      days ? parseInt(days, 10) : 7,
+    );
   }
 
   @Get('breakdowns')

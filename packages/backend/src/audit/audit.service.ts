@@ -215,14 +215,15 @@ export class AuditService {
    * Analytics: time-series invocation data for the last 7 days,
    * grouped by day and status. Also returns top tools by usage.
    */
-  async getAnalytics(organizationId?: string) {
+  async getAnalytics(organizationId?: string, days = 7) {
+    const safeDays = Math.min(Math.max(days || 7, 1), 365);
     const now = new Date();
-    const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const since = new Date(now.getTime() - safeDays * 24 * 60 * 60 * 1000);
     const scope = this.orgScope(organizationId);
 
-    // Get all invocations for the last 7 days
+    // Get all invocations for the selected window
     const invocations = await this.prisma.toolInvocation.findMany({
-      where: { createdAt: { gte: last7d }, ...scope },
+      where: { createdAt: { gte: since }, ...scope },
       select: {
         status: true,
         durationMs: true,
@@ -260,9 +261,9 @@ export class AuditService {
       toolStats.totalDuration += inv.durationMs || 0;
     }
 
-    // Build daily timeline (fill empty days)
+    // Build daily timeline (fill empty days) across the selected window
     const daily: Array<{ date: string; success: number; error: number; timeout: number; avgDuration: number }> = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = safeDays - 1; i >= 0; i--) {
       const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
       const key = d.toISOString().slice(0, 10);
       const stats = dailyMap.get(key) || { success: 0, error: 0, timeout: 0, totalDuration: 0, count: 0 };

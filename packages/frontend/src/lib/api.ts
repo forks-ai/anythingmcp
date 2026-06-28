@@ -284,14 +284,14 @@ export const audit = {
   },
   stats: (token: string) =>
     request<{ invocations24h: number; errors24h: number; invocations7d: number; totalInvocations: number }>('/api/audit/stats', { token }),
-  analytics: (token: string) =>
+  analytics: (token: string, days = 7) =>
     request<{
       daily: Array<{ date: string; success: number; error: number; timeout: number; avgDuration: number }>;
       topTools: Array<{ name: string; count: number; errors: number; avgDuration: number }>;
       totalInvocations: number;
       successRate: number;
       avgDuration: number;
-    }>('/api/audit/analytics', { token }),
+    }>(`/api/audit/analytics?days=${days}`, { token }),
   breakdowns: (token: string, days = 30) =>
     request<AuditBreakdowns>(`/api/audit/breakdowns?days=${days}`, { token }),
 };
