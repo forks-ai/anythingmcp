@@ -107,12 +107,14 @@ export function AppShell({
         </header>
 
         {/* Scrollable content */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-          <div className={cn('mx-auto w-full')} style={{ maxWidth }}>
+        {/* Column layout so the footer sits at the bottom of the viewport when
+            content is short, and after the content (with spacing) when it's tall. */}
+        <main className="flex flex-1 flex-col overflow-y-auto">
+          <div className={cn('mx-auto w-full flex-1 p-4 sm:p-6')} style={{ maxWidth }}>
             {children}
           </div>
           {!hideFooter && (
-            <div className="mx-auto w-full" style={{ maxWidth }}>
+            <div className="mx-auto mt-10 w-full px-4 pb-4 sm:px-6" style={{ maxWidth }}>
               <Footer />
             </div>
           )}
