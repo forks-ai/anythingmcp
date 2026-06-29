@@ -117,7 +117,6 @@ export default function AdminUsersPage() {
 
   return (
     <AppShell
-      breadcrumbs={[{ label: 'Dashboard', href: '/' }]}
       title="User Management"
       actions={
         <Button

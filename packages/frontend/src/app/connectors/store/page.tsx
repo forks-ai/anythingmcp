@@ -289,10 +289,7 @@ function AdapterStoreContent() {
 
   return (
     <AppShell
-      breadcrumbs={[
-        { label: 'Dashboard', href: '/' },
-        { label: 'Connectors', href: '/connectors' },
-      ]}
+      backTo={{ label: 'Connectors', href: '/connectors' }}
       title="Marketplace"
       subtitle="Pre-configured connector recipes for popular APIs. Import with one click and just add your API key."
       actions={

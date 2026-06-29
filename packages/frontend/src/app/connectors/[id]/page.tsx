@@ -439,7 +439,7 @@ export default function ConnectorDetailPage() {
 
   if (loading) {
     return (
-      <AppShell breadcrumbs={[{ label: 'Connectors', href: '/connectors' }]} title="Connector">
+      <AppShell backTo={{ label: 'Connectors', href: '/connectors' }} title="Connector">
         <div className="flex items-center justify-center py-24">
           <div className="text-center">
             <div className="inline-block w-6 h-6 border-2 border-[var(--brand)] border-t-transparent rounded-full animate-spin mb-3"></div>
@@ -478,7 +478,7 @@ export default function ConnectorDetailPage() {
 
   return (
     <AppShell
-      breadcrumbs={[{ label: 'Connectors', href: '/connectors' }]}
+      backTo={{ label: 'Connectors', href: '/connectors' }}
       title={connector.name}
       maxWidth={880}
       actions={

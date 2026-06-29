@@ -131,7 +131,7 @@ export default function SkillsPage() {
 
   return (
     <AppShell
-      breadcrumbs={[{ label: 'Knowledge Graph', href: '/knowledge-graph' }]}
+      backTo={{ label: 'Knowledge Graph', href: '/knowledge-graph' }}
       title="AI Skills"
       maxWidth={860}
       actions={

@@ -236,7 +236,7 @@ export default function ConnectorsPage() {
   );
 
   return (
-    <AppShell title="Connectors" breadcrumbs={[{ label: 'Dashboard', href: '/' }]} actions={headerActions}>
+    <AppShell title="Connectors" actions={headerActions}>
       {msg && (
         <div className="mb-4 flex items-center justify-between rounded-[10px] border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--text-2)]">
           <span>{msg}</span>

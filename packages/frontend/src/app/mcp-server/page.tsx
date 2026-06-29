@@ -64,7 +64,6 @@ export default function McpServerListPage() {
 
   return (
     <AppShell
-      breadcrumbs={[{ label: 'Dashboard', href: '/' }]}
       title="MCP Servers"
       actions={
         <Button onClick={() => setShowCreate(true)}>

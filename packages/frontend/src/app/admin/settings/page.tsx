@@ -127,7 +127,6 @@ export default function AdminSettingsPage() {
 
   return (
     <AppShell
-      breadcrumbs={[{ label: 'Dashboard', href: '/' }]}
       title="Admin Settings"
     >
       <div className="space-y-6">

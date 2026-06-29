@@ -148,7 +148,7 @@ export default function NewConnectorPage() {
 
   return (
     <AppShell
-      breadcrumbs={[{ label: 'Connectors', href: '/connectors' }]}
+      backTo={{ label: 'Connectors', href: '/connectors' }}
       title="New connector"
       maxWidth={880}
     >

@@ -184,7 +184,7 @@ export default function McpServerDetailPage() {
 
   if (loading) {
     return (
-      <AppShell breadcrumbs={[{ label: 'MCP Servers', href: '/mcp-server' }]} title="Loading...">
+      <AppShell backTo={{ label: 'MCP Servers', href: '/mcp-server' }} title="Loading...">
         <div className="animate-pulse space-y-4">
           <div className="h-8 w-1/3 rounded-[9px] bg-[var(--surface-2)]" />
           <div className="h-40 rounded-[14px] bg-[var(--surface-2)]" />
@@ -196,7 +196,7 @@ export default function McpServerDetailPage() {
 
   if (!server) {
     return (
-      <AppShell breadcrumbs={[{ label: 'MCP Servers', href: '/mcp-server' }]} title="Not Found">
+      <AppShell backTo={{ label: 'MCP Servers', href: '/mcp-server' }} title="Not Found">
         <Card className="p-10 text-center">
           <p className="text-[var(--text-3)]">MCP server not found.</p>
         </Card>
@@ -266,6 +266,30 @@ export default function McpServerDetailPage() {
   }
 }`;
 
+  // GitHub Copilot (VS Code, Visual Studio desktop, JetBrains, Eclipse, Xcode)
+  // reads MCP servers from an `.mcp.json` / `mcp.json` file that uses the
+  // top-level "servers" key (not "mcpServers") with a remote "http" entry.
+  const copilotConfig = `{
+  "servers": {
+    "${slug}": {
+      "type": "http",
+      "url": "${endpointUrl}"
+    }
+  }
+}`;
+
+  const copilotConfigApiKey = `{
+  "servers": {
+    "${slug}": {
+      "type": "http",
+      "url": "${endpointUrl}",
+      "headers": {
+        "X-API-Key": "YOUR_MCP_API_KEY"
+      }
+    }
+  }
+}`;
+
   const cursorDeepLink = () => {
     const config = btoa(JSON.stringify({ url: endpointUrl }));
     return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent(slug)}&config=${config}`;
@@ -278,7 +302,8 @@ export default function McpServerDetailPage() {
 
   const aiClients: { id: string; name: string; init: string; tone: Tone }[] = [
     { id: 'cursor', name: 'Cursor', init: 'Cu', tone: 'info' },
-    { id: 'vscode', name: 'VS Code / Copilot', init: 'VS', tone: 'purple' },
+    { id: 'vscode', name: 'VS Code', init: 'VS', tone: 'purple' },
+    { id: 'copilot', name: 'GitHub Copilot', init: 'Co', tone: 'neutral' },
     { id: 'claude-web', name: 'Claude (Web)', init: 'Cl', tone: 'warn' },
     { id: 'claude-desktop', name: 'Claude Desktop', init: 'Cl', tone: 'warn' },
     { id: 'claude-code', name: 'Claude Code', init: 'Cl', tone: 'warn' },
@@ -345,6 +370,30 @@ export default function McpServerDetailPage() {
               Click the button below to automatically add this MCP server to VS Code. GitHub Copilot extension required for MCP support.
             </p>
             {linkAction(vscodeDeepLink(), 'Open in VS Code')}
+          </div>
+        );
+      case 'copilot':
+        return (
+          <div className="space-y-4">
+            <p className="text-[13px] leading-[1.55] text-[var(--text-2)]">
+              GitHub Copilot supports remote MCP servers in <strong>VS Code</strong>,{' '}
+              <strong>Visual Studio</strong> (desktop), JetBrains, Eclipse and Xcode.
+              Add the config below to the matching file for your IDE, then start the
+              server from the Copilot Chat → <strong>Tools</strong> menu.
+            </p>
+            {codeBlock(copilotConfig, 'copilot-oauth')}
+            <div className="space-y-1 text-[12px] leading-[1.6] text-[var(--text-3)]">
+              <div><strong className="text-[var(--text-2)]">VS Code:</strong> workspace <code className="rounded bg-[var(--surface-2)] px-1 font-mono">.vscode/mcp.json</code> (or use the one-click button below).</div>
+              <div><strong className="text-[var(--text-2)]">Visual Studio (desktop):</strong> <code className="rounded bg-[var(--surface-2)] px-1 font-mono">{'<solution>\\.mcp.json'}</code> or <code className="rounded bg-[var(--surface-2)] px-1 font-mono">%USERPROFILE%\\.mcp.json</code>.</div>
+              <div><strong className="text-[var(--text-2)]">JetBrains / Eclipse / Xcode:</strong> Copilot Chat → MCP settings → add server, paste the endpoint URL.</div>
+            </div>
+            {linkAction(vscodeDeepLink(), 'One-click add to VS Code')}
+            <details className="group pt-1">
+              <summary className="cursor-pointer text-xs font-medium text-[var(--text-3)] hover:text-[var(--text)]">
+                Using an API key instead of OAuth?
+              </summary>
+              <div className="mt-3">{codeBlock(copilotConfigApiKey, 'copilot-apikey')}</div>
+            </details>
           </div>
         );
       case 'claude-web':
@@ -465,7 +514,7 @@ export default function McpServerDetailPage() {
 
   return (
     <AppShell
-      breadcrumbs={[{ label: 'MCP Servers', href: '/mcp-server' }]}
+      backTo={{ label: 'MCP Servers', href: '/mcp-server' }}
       title={server.name}
       maxWidth={880}
       actions={

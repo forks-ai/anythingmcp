@@ -47,7 +47,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const isAdmin = user?.role === 'ADMIN';
 
   return (
-    <AppShell breadcrumbs={[{ label: 'Dashboard', href: '/' }]} title="Settings">
+    <AppShell title="Settings">
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[210px_1fr] lg:gap-8">
         {/* Settings sub-navigation */}
         <nav className="flex gap-1 overflow-x-auto pb-2 lg:sticky lg:top-0 lg:flex-col lg:overflow-x-visible lg:pb-0">

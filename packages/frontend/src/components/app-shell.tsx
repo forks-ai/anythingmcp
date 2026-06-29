@@ -14,8 +14,14 @@ interface AppShellProps {
   title?: string;
   /** Optional muted subtitle under the title. */
   subtitle?: string;
-  /** Breadcrumb trail; the last entry is rendered as the current title when no `title` is given. */
+  /**
+   * Breadcrumb trail. The header itself only uses the last entry as the title
+   * fallback (the redesign header is title + subtitle, no breadcrumb row).
+   * For a back affordance on detail pages, pass `backTo` instead.
+   */
   breadcrumbs?: { label: string; href: string }[];
+  /** Optional back link rendered as a small "‹ Label" above the title (detail pages). */
+  backTo?: { label: string; href: string };
   /** Right-aligned header actions (primary buttons, etc.). */
   actions?: React.ReactNode;
   /** Constrain the content column width (default 1180px to match the redesign). */
@@ -29,6 +35,7 @@ export function AppShell({
   title,
   subtitle,
   breadcrumbs,
+  backTo,
   actions,
   maxWidth = 1180,
   hideFooter = false,
@@ -64,15 +71,14 @@ export function AppShell({
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
             </button>
             <div className="min-w-0">
-              {breadcrumbs && breadcrumbs.length > 0 && (
-                <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-3)]">
-                  {breadcrumbs.map((c, i) => (
-                    <span key={c.href} className="flex items-center gap-1.5">
-                      {i > 0 && <span>/</span>}
-                      <Link href={c.href} className="hover:text-[var(--text)] hover:underline">{c.label}</Link>
-                    </span>
-                  ))}
-                </div>
+              {backTo && (
+                <Link
+                  href={backTo.href}
+                  className="flex items-center gap-1 text-[12px] text-[var(--text-3)] hover:text-[var(--text)]"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+                  {backTo.label}
+                </Link>
               )}
               {headerTitle && (
                 <div className="truncate text-[16px] font-semibold tracking-[-0.02em]">{headerTitle}</div>

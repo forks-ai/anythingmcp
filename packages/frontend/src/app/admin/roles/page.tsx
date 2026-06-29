@@ -193,7 +193,6 @@ export default function AdminRolesPage() {
 
   return (
     <AppShell
-      breadcrumbs={[{ label: 'Dashboard', href: '/' }]}
       title="MCP Role Management"
     >
       <div className="space-y-6">

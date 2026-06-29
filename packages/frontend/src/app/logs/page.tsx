@@ -184,7 +184,6 @@ export default function LogsPage() {
     <AppShell
       title="Audit Log"
       subtitle="Tool invocation history across your connectors and MCP servers."
-      breadcrumbs={[{ label: 'Dashboard', href: '/' }, { label: 'Audit Log', href: '/logs' }]}
       actions={exportButton}
     >
       {/* Toolbar */}
