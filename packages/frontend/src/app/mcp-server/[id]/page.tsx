@@ -516,7 +516,7 @@ export default function McpServerDetailPage() {
     <AppShell
       backTo={{ label: 'MCP Servers', href: '/mcp-server' }}
       title={server.name}
-      maxWidth={880}
+      maxWidth={1200}
       actions={
         <div className="flex items-center gap-2">
           <button
@@ -560,8 +560,9 @@ export default function McpServerDetailPage() {
         </div>
       </div>
 
-      <div className="flex max-w-[880px] flex-col gap-4">
-        {/* Connect a client */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
+        {/* Connect a client — sticky right column on desktop, shown first on mobile */}
+        <aside className="order-1 flex flex-col gap-4 lg:order-2 lg:sticky lg:top-4">
         <Card className="p-[22px]">
           <div className="mb-[14px] text-sm font-semibold">Connect your MCP client</div>
           <div className="mb-1.5 text-[11px] text-[var(--text-3)]">MCP endpoint</div>
@@ -645,6 +646,7 @@ export default function McpServerDetailPage() {
             </div>
           </details>
         </Card>
+        </aside>
 
         {/* Connect Modal */}
         {connectClient && (
@@ -672,6 +674,8 @@ export default function McpServerDetailPage() {
           </div>
         )}
 
+        {/* Main column — Server settings on top, then connectors, keys, tools */}
+        <div className="order-2 flex min-w-0 flex-col gap-4 lg:order-1">
         {/* Assigned Connectors */}
         <Card className="p-[22px]">
           <div className="mb-1.5 flex items-center justify-between">
@@ -866,8 +870,8 @@ export default function McpServerDetailPage() {
           )}
         </Card>
 
-        {/* Server settings + instructions */}
-        <Card className="p-[22px]">
+        {/* Server settings + instructions — pinned to the top of the main column */}
+        <Card className="order-first p-[22px]">
           <div className="mb-4 text-sm font-semibold">Server settings</div>
           <div className="flex max-w-[520px] flex-col gap-[14px]">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -923,6 +927,7 @@ export default function McpServerDetailPage() {
             </Button>
           </div>
         </Card>
+        </div>
       </div>
     </AppShell>
   );
