@@ -109,7 +109,11 @@ export function AppShell({
         {/* Scrollable content */}
         {/* Column layout so the footer sits at the bottom of the viewport when
             content is short, and after the content (with spacing) when it's tall. */}
-        <main className="flex flex-1 flex-col overflow-y-auto">
+        {/* `relative` makes this the containing block for any absolutely-
+            positioned descendants (e.g. Tailwind `sr-only` checkbox inputs) so
+            they don't anchor to the document and inflate its scroll height,
+            which would let the whole page scroll behind the fixed sidebar. */}
+        <main className="relative flex flex-1 flex-col overflow-y-auto">
           <div className={cn('mx-auto w-full flex-1 p-4 sm:p-6')} style={{ maxWidth }}>
             {children}
           </div>
