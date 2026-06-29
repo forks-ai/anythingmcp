@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { LogoIcon } from '@/components/logo-icon';
 import { cn } from '@/lib/utils';
 
 /* ── Inline icons (match the redesign prototype) ── */
@@ -37,14 +38,14 @@ const SettingsIcon = () => (
   <I><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></I>
 );
 
-type NavLink = { href: string; label: string; icon: () => React.ReactNode; exact?: boolean };
+type NavLink = { href: string; label: string; icon: () => React.ReactNode };
 type NavGroup = { group: string; items: NavLink[] };
 
 const NAV: NavGroup[] = [
   {
     group: 'Overview',
     items: [
-      { href: '/', label: 'Dashboard', icon: DashboardIcon, exact: true },
+      { href: '/', label: 'Dashboard', icon: DashboardIcon },
       { href: '/analytics', label: 'Analytics', icon: AnalyticsIcon },
       { href: '/logs', label: 'Audit Log', icon: LogsIcon },
     ],
@@ -60,7 +61,7 @@ const NAV: NavGroup[] = [
   {
     group: 'Intelligence',
     items: [
-      { href: '/knowledge-graph', label: 'Knowledge Graph', icon: KgIcon, exact: true },
+      { href: '/knowledge-graph', label: 'Knowledge Graph', icon: KgIcon },
       { href: '/knowledge-graph/skills', label: 'AI Skills', icon: SkillsIcon },
     ],
   },
@@ -70,9 +71,18 @@ const NAV: NavGroup[] = [
   },
 ];
 
-function isActive(pathname: string, href: string, exact?: boolean) {
-  if (exact) return pathname === href;
-  return pathname === href || pathname.startsWith(href + '/');
+// All navigable hrefs, used to resolve the single active item: the longest
+// href that prefix-matches the current path wins (so /connectors/store lights
+// up "Marketplace" only, /knowledge-graph/skills lights up "AI Skills", etc.).
+const ALL_HREFS = [...NAV.flatMap((g) => g.items.map((i) => i.href)), '/settings'];
+
+function bestHref(pathname: string): string | null {
+  let best: string | null = null;
+  for (const href of ALL_HREFS) {
+    const matches = href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/');
+    if (matches && (!best || href.length > best.length)) best = href;
+  }
+  return best;
 }
 
 export function AppSidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
@@ -89,8 +99,9 @@ export function AppSidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClo
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
-  // Connectors detail / settings deep-paths should keep their nav item active.
-  const settingsActive = pathname === '/settings' || pathname.startsWith('/settings/');
+  // Exactly one nav item is active: the longest href matching the current path.
+  const active = bestHref(pathname);
+  const settingsActive = active === '/settings';
 
   const orgInitials = (orgName || user?.email || 'A').slice(0, 2).toUpperCase();
 
@@ -98,18 +109,10 @@ export function AppSidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClo
     <>
       <div className="flex items-center gap-2.5 px-[18px] pb-4 pt-[18px]">
         <div
-          className="flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-[var(--brand)]"
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-[var(--brand)] text-white"
           style={{ boxShadow: '0 2px 8px var(--brand-ring)' }}
         >
-          <svg width="18" height="18" viewBox="0 0 52 52" fill="none">
-            <line x1="26" y1="26" x2="26" y2="11" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.6" />
-            <line x1="26" y1="26" x2="12" y2="40" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.6" />
-            <line x1="26" y1="26" x2="40" y2="40" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.6" />
-            <circle cx="26" cy="11" r="4.5" fill="#fff" opacity="0.75" />
-            <circle cx="12" cy="40" r="4.5" fill="#fff" opacity="0.75" />
-            <circle cx="40" cy="40" r="4.5" fill="#fff" opacity="0.75" />
-            <circle cx="26" cy="26" r="8.5" fill="#fff" />
-          </svg>
+          <LogoIcon size={18} />
         </div>
         <div className="text-[15px] font-semibold tracking-[-0.02em]">
           Anything<span className="text-[var(--brand)]">MCP</span>
@@ -122,16 +125,14 @@ export function AppSidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClo
             <div className="px-2.5 pb-1 pt-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--text-3)]">
               {g.group}
             </div>
-            {g.items.map((item) => {
-              const active = isActive(pathname, item.href, item.exact);
-              return (
+            {g.items.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={onClose}
                   className={cn(
                     'flex w-full items-center gap-[11px] rounded-[9px] px-2.5 py-2 text-left text-[13.5px] font-medium transition-colors',
-                    active
+                    item.href === active
                       ? 'bg-[var(--brand-tint)] text-[var(--brand)]'
                       : 'text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]'
                   )}
@@ -139,8 +140,7 @@ export function AppSidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClo
                   <item.icon />
                   {item.label}
                 </Link>
-              );
-            })}
+              ))}
           </div>
         ))}
       </nav>

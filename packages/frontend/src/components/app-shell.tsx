@@ -84,11 +84,6 @@ export function AppShell({
           </div>
 
           <div className="flex items-center gap-2.5">
-            <div className="hidden h-9 min-w-[230px] items-center gap-2 rounded-[9px] border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text-3)] lg:flex">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
-              <span className="text-[13px]">Search tools, connectors…</span>
-              <span className="ml-auto rounded-[5px] border border-[var(--border)] px-[5px] py-px font-mono text-[11px]">⌘K</span>
-            </div>
             <button
               onClick={() => setTheme(isDark ? 'light' : 'dark')}
               title="Toggle theme"

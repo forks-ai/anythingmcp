@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { auth } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
-import { LogoIcon } from '@/components/nav-bar';
+import { LogoIcon } from '@/components/logo-icon';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 

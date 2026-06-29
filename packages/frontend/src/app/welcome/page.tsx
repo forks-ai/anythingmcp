@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { adapters, users } from '@/lib/api';
-import { LogoIcon } from '@/components/nav-bar';
+import { LogoIcon } from '@/components/logo-icon';
 import { DEMO_CONNECTORS, type DemoConnector } from '@/lib/demo-connectors';
 
 // A small, curated subset of slugs known to actually work end-to-end

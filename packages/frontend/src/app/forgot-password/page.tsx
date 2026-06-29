@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { auth } from '@/lib/api';
-import { LogoIcon } from '@/components/nav-bar';
+import { LogoIcon } from '@/components/logo-icon';
 import { useToast } from '@/components/toast';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

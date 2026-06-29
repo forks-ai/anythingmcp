@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { auth, license, server } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { buildPricingUrl } from '@/lib/marketing';
-import { LogoIcon } from '@/components/nav-bar';
+import { LogoIcon } from '@/components/logo-icon';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';

@@ -467,6 +467,7 @@ export default function McpServerDetailPage() {
     <AppShell
       breadcrumbs={[{ label: 'MCP Servers', href: '/mcp-server' }]}
       title={server.name}
+      maxWidth={880}
       actions={
         <div className="flex items-center gap-2">
           <button

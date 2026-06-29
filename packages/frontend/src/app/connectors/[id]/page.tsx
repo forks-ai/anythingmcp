@@ -480,6 +480,7 @@ export default function ConnectorDetailPage() {
     <AppShell
       breadcrumbs={[{ label: 'Connectors', href: '/connectors' }]}
       title={connector.name}
+      maxWidth={880}
       actions={
         <div className="flex gap-2 flex-wrap">
           <Button variant="secondary" size="md" onClick={handleTest}>

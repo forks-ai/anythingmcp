@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { license } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { buildPricingUrl } from '@/lib/marketing';
-import { LogoIcon } from '@/components/nav-bar';
+import { LogoIcon } from '@/components/logo-icon';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
