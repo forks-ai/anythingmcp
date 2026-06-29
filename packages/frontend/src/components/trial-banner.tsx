@@ -25,14 +25,16 @@ export function TrialBanner() {
   const isUrgent = daysLeft <= 1;
   const isWarning = daysLeft <= 3;
 
-  const bgColor = isUrgent
-    ? 'bg-red-600'
-    : isWarning
-      ? 'bg-amber-500'
-      : 'bg-blue-600';
+  const tone = isUrgent ? 'danger' : isWarning ? 'warn' : 'info';
 
   return (
-    <div className={`${bgColor} text-white text-sm py-2 px-4 text-center`}>
+    <div
+      className="text-sm py-2 px-4 text-center"
+      style={{
+        backgroundColor: `var(--t-${tone}-bg)`,
+        color: `var(--t-${tone}-fg)`,
+      }}
+    >
       <span>
         {daysLeft === 0
           ? 'Your trial expires today.'

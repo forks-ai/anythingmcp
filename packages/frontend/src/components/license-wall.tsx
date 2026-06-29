@@ -7,6 +7,8 @@ import { license } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { buildPricingUrl } from '@/lib/marketing';
 import { LogoIcon } from '@/components/nav-bar';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 type BlockReason = 'no-license' | 'trial-ended' | 'expired';
 
@@ -83,21 +85,21 @@ export function LicenseWall() {
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-8 max-w-md w-full mx-4 text-center shadow-2xl">
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[14px] p-8 max-w-md w-full mx-4 text-center shadow-[var(--shadow)]">
         <div className="flex justify-center mb-4">
           <LogoIcon size={48} />
         </div>
 
-        <h1 className="text-2xl font-bold mb-2">{title}</h1>
+        <h1 className="text-2xl font-bold mb-2 text-[var(--text)]">{title}</h1>
 
-        <p className="text-[var(--muted-foreground)] text-sm mb-6">{body}</p>
+        <p className="text-[var(--text-2)] text-sm mb-6">{body}</p>
 
         <div className="space-y-3">
           <a
             href={buildPricingUrl()}
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full bg-[var(--brand)] text-white px-4 py-2.5 rounded-md text-sm font-medium hover:brightness-90 text-center"
+            className={cn(buttonVariants({ variant: 'primary', size: 'lg' }), 'w-full')}
           >
             View Plans &amp; Purchase License
           </a>
@@ -105,13 +107,13 @@ export function LicenseWall() {
           {reason === 'no-license' && isCloud && (
             <Link
               href="/settings/license"
-              className="block w-full border border-[var(--border)] px-4 py-2.5 rounded-md text-sm font-medium hover:bg-[var(--accent)] text-center"
+              className={cn(buttonVariants({ variant: 'secondary', size: 'lg' }), 'w-full')}
             >
               Start 7-Day Free Trial
             </Link>
           )}
 
-          <p className="text-xs text-[var(--muted-foreground)]">
+          <p className="text-xs text-[var(--text-3)]">
             Already purchased?{' '}
             <Link
               href="/settings/license"

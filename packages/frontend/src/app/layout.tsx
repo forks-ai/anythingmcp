@@ -1,8 +1,20 @@
 import type { Metadata } from 'next';
+import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
-import { TrialBanner } from '@/components/trial-banner';
-import { UsageBanner } from '@/components/usage-banner';
+
+const geistSans = Geist({
+  subsets: ['latin'],
+  variable: '--font-geist-sans',
+  weight: ['400', '500', '600', '700'],
+  display: 'swap',
+});
+const geistMono = Geist_Mono({
+  subsets: ['latin'],
+  variable: '--font-geist-mono',
+  weight: ['400', '500'],
+  display: 'swap',
+});
 import { LicenseWall } from '@/components/license-wall';
 import { GoogleTagManager, GoogleTagManagerNoscript } from '@/components/google-tag-manager';
 import { CookieConsentBanner } from '@/components/cookie-consent';
@@ -34,7 +46,7 @@ export default function RootLayout({
   const cookieDomain = process.env.COOKIE_DOMAIN;
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <GoogleTagManager />
@@ -42,8 +54,6 @@ export default function RootLayout({
       <body>
         <GoogleTagManagerNoscript />
         <Providers>
-          <TrialBanner />
-          <UsageBanner />
           <LicenseWall />
           {children}
         </Providers>
