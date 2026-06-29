@@ -59,7 +59,7 @@ export function AppShell({
         </div>
         {/* Content header */}
         <header
-          className="sticky top-0 z-30 flex h-[60px] flex-shrink-0 items-center justify-between border-b border-[var(--border)] px-4 backdrop-blur-md sm:px-6"
+          className="sticky top-0 z-30 flex min-h-[60px] flex-shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2.5 backdrop-blur-md sm:px-6"
           style={{ background: 'color-mix(in srgb, var(--bg) 80%, transparent)' }}
         >
           <div className="flex min-w-0 items-center gap-3">
@@ -74,7 +74,7 @@ export function AppShell({
               {backTo && (
                 <Link
                   href={backTo.href}
-                  className="flex items-center gap-1 text-[12px] text-[var(--text-3)] hover:text-[var(--text)]"
+                  className="mb-0.5 flex items-center gap-1 text-[12px] text-[var(--text-3)] hover:text-[var(--text)]"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                   {backTo.label}
