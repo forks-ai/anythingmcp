@@ -20,8 +20,9 @@ import { GoogleTagManager, GoogleTagManagerNoscript } from '@/components/google-
 import { CookieConsentBanner } from '@/components/cookie-consent';
 
 export const metadata: Metadata = {
-  title: 'Anything MCP',
-  description: 'Convert any API into an MCP server',
+  title: 'AnythingMCP — Custom connectors for Claude, ChatGPT, Copilot & any AI agent',
+  description:
+    'Create custom connectors for Claude, ChatGPT, Copilot and any AI agent. Turn any REST, SOAP, GraphQL or SQL system into AI tools — no code.',
   icons: { icon: '/icon.svg', apple: '/apple-icon.svg' },
 };
 

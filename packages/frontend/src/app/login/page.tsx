@@ -571,7 +571,7 @@ function LoginForm() {
             {isRegister ? 'Create your account' : 'Sign in'}
           </h1>
           <p className="text-[var(--text-2)] mt-1 text-sm">
-            Convert any API into an MCP server
+            Create custom connectors for Claude, ChatGPT, Copilot and any AI agent
           </p>
         </div>
 
