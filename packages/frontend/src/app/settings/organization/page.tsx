@@ -43,7 +43,7 @@ export default function OrganizationSettingsPage() {
     knowledgeGraph.getSettings(token).then(setKg).catch(() => {});
   }, [token]);
 
-  const updateFlag = async (patch: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean; autoExtend?: boolean; skillAutoApply?: boolean }) => {
+  const updateFlag = async (patch: { enabled?: boolean; llmEnabled?: boolean; captureIntent?: boolean; autoExtend?: boolean; skillAutoApply?: boolean; edgeAutoApply?: boolean }) => {
     if (!token || !kg) return;
     setKgSaving(true);
     try {
@@ -204,6 +204,17 @@ export default function OrganizationSettingsPage() {
             disabled={!isAdmin || kgSaving || !kg?.enabled}
             isAdmin={isAdmin}
             onToggle={() => updateFlag({ llmEnabled: !kg?.llmEnabled })}
+          />
+        )}
+
+        {kg?.llmAvailable && (
+          <FeatureToggle
+            label="Auto-apply high-confidence connections"
+            description="When AI enrichment suggests a connection it is confident about (≥ 0.90), add it to the graph automatically instead of leaving it for manual review. Lower-confidence links still wait for your confirmation. No extra model cost — it only changes how existing suggestions are handled."
+            checked={!!kg?.edgeAutoApply}
+            disabled={!isAdmin || kgSaving || !kg?.enabled || !kg?.llmEnabled}
+            isAdmin={isAdmin}
+            onToggle={() => updateFlag({ edgeAutoApply: !kg?.edgeAutoApply })}
           />
         )}
 
