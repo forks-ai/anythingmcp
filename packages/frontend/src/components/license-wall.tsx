@@ -15,8 +15,26 @@ type BlockReason = 'no-license' | 'trial-ended' | 'expired';
 export function LicenseWall() {
   const { token, deploymentMode } = useAuth();
   const [reason, setReason] = useState<BlockReason | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [startErr, setStartErr] = useState<string | null>(null);
   const pathname = usePathname();
   const isCloud = deploymentMode === 'cloud';
+
+  // Start the trial in place (no navigation) so a failed auto-activation on
+  // signup doesn't strand the user on this wall. On success the block clears.
+  const startTrial = async () => {
+    if (!token) return;
+    setStarting(true);
+    setStartErr(null);
+    try {
+      await license.activateTrial(token);
+      setReason(null);
+    } catch (e: any) {
+      setStartErr(e?.message || 'Could not start the trial. Please try again or contact support.');
+    } finally {
+      setStarting(false);
+    }
+  };
 
   useEffect(() => {
     // Logged out (or logging out) — clear any stale block so the wall
@@ -95,22 +113,36 @@ export function LicenseWall() {
         <p className="text-[var(--text-2)] text-sm mb-6">{body}</p>
 
         <div className="space-y-3">
-          <a
-            href={buildPricingUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(buttonVariants({ variant: 'primary', size: 'lg' }), 'w-full')}
-          >
-            View Plans &amp; Purchase License
-          </a>
-
-          {reason === 'no-license' && isCloud && (
-            <Link
-              href="/settings/license"
-              className={cn(buttonVariants({ variant: 'secondary', size: 'lg' }), 'w-full')}
+          {reason === 'no-license' && isCloud ? (
+            <>
+              {/* Fresh workspace with no trial yet → starting it is the intended
+                  path (and the in-place retry for a failed auto-activation). */}
+              <button
+                onClick={startTrial}
+                disabled={starting}
+                className={cn(buttonVariants({ variant: 'primary', size: 'lg' }), 'w-full')}
+              >
+                {starting ? 'Starting…' : 'Start 7-Day Free Trial'}
+              </button>
+              {startErr && <p className="text-xs text-[var(--danger)]">{startErr}</p>}
+              <a
+                href={buildPricingUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(buttonVariants({ variant: 'secondary', size: 'lg' }), 'w-full')}
+              >
+                View Plans &amp; Purchase License
+              </a>
+            </>
+          ) : (
+            <a
+              href={buildPricingUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(buttonVariants({ variant: 'primary', size: 'lg' }), 'w-full')}
             >
-              Start 7-Day Free Trial
-            </Link>
+              View Plans &amp; Purchase License
+            </a>
           )}
 
           <p className="text-xs text-[var(--text-3)]">
