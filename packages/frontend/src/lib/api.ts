@@ -351,6 +351,7 @@ export interface KgSettings {
   captureIntent: boolean;
   autoExtend: boolean;
   skillAutoApply: boolean;
+  edgeAutoApply: boolean;
 }
 
 export interface KgSkillList {
@@ -377,6 +378,7 @@ export const knowledgeGraph = {
       captureIntent?: boolean;
       autoExtend?: boolean;
       skillAutoApply?: boolean;
+      edgeAutoApply?: boolean;
     },
   ) =>
     request<KgSettings>('/api/knowledge-graph/settings', { token, method: 'PUT', body }),

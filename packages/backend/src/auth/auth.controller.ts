@@ -30,6 +30,7 @@ import { PrismaService } from '../common/prisma.service';
 import { EmailService } from '../settings/email.service';
 import { SiteSettingsService } from '../settings/site-settings.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { LicenseService } from '../license/license.service';
 import { Roles, RolesGuard } from './roles.guard';
 
 class LoginDto {
@@ -145,6 +146,7 @@ export class AuthController {
     private readonly configService: ConfigService,
     private readonly siteSettings: SiteSettingsService,
     private readonly organizationsService: OrganizationsService,
+    private readonly licenseService: LicenseService,
   ) {}
 
   private getFrontendUrl(_req?: any): string {
@@ -349,6 +351,10 @@ export class AuthController {
     // Mark user as verified
     await this.usersService.update(userId, { emailVerified: true });
 
+    // Cloud: deterministically ensure the workspace has a trial before any
+    // license gate evaluates (best-effort; never blocks verification).
+    await this.ensureCloudTrial(userId);
+
     return { message: 'Email verified successfully', emailVerified: true };
   }
 
@@ -372,9 +378,42 @@ export class AuthController {
     });
     await this.usersService.update(record.userId, { emailVerified: true });
 
+    // Cloud: ensure a trial exists before the user lands back in the app.
+    await this.ensureCloudTrial(record.userId);
+
     // Redirect to frontend
     const frontendUrl = this.getFrontendUrl(req);
     return res.redirect(`${frontendUrl}/login?emailVerified=true`);
+  }
+
+  /**
+   * Cloud only: make sure a freshly-verified user's workspace has a trial
+   * license, idempotently and best-effort. This removes the client-side race
+   * where a failed trial activation in the login flow dropped the user onto the
+   * "no-license" wall instead of onboarding. Never throws — verification must
+   * succeed regardless; the login flow + LicenseWall "Start trial" CTA remain
+   * as fallbacks.
+   */
+  private async ensureCloudTrial(userId: string): Promise<void> {
+    const isCloud = this.configService.get<string>('DEPLOYMENT_MODE') === 'cloud';
+    if (!isCloud) return;
+    try {
+      const user = await this.usersService.findById(userId);
+      if (!user?.organizationId) return;
+      // Idempotent: skip if this org already has any license (trial or paid).
+      const existing = await this.prisma.license.findFirst({
+        where: { organizationId: user.organizationId },
+      });
+      if (existing) return;
+      await this.licenseService.requestTrialLicense(
+        user.email,
+        user.name || user.email,
+        user.organizationId,
+      );
+      this.logger.log(`Cloud trial activated for org ${user.organizationId} on email verification.`);
+    } catch (err: any) {
+      this.logger.warn(`Cloud trial activation on verify failed for user ${userId}: ${err.message}`);
+    }
   }
 
   @Post('resend-verification')
