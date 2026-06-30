@@ -356,6 +356,82 @@ export class EmailService {
   // successful tool call — the biggest drop-off point. Links straight to
   // their connector so they can run a test in one click.
 
+  /**
+   * Trial lifecycle (cloud-only, SMTP-only): value-oriented nudges as the trial
+   * winds down. Unlike the activation drip, these connect what the user has
+   * BUILT to the upgrade. Stages: warn3 (~3 days left), warn1 (last day),
+   * expired (trial over, data preserved). Returns false if no SMTP (skipped).
+   */
+  async sendTrialLifecycleEmail(
+    to: string,
+    name: string,
+    stage: 'warn3' | 'warn1' | 'expired',
+    recap: { connectors: number; successfulCalls: number; daysLeft: number },
+  ): Promise<boolean> {
+    const transport = await this.createTransporter();
+    if (!transport) {
+      this.logger.warn(`Skipping trial-${stage} email to ${to}: no SMTP configured`);
+      return false;
+    }
+
+    const cloudUrl = process.env.CLOUD_PUBLIC_URL || 'https://cloud.anythingmcp.com';
+    const marketingUrl = process.env.MARKETING_URL || 'https://anythingmcp.com';
+    const pricingUrl = `${marketingUrl}/pricing?return_url=${encodeURIComponent(`${cloudUrl}/settings/license/activate`)}`;
+
+    const built =
+      recap.connectors > 0
+        ? `You've wired up <strong>${recap.connectors} connector${recap.connectors === 1 ? '' : 's'}</strong>` +
+          (recap.successfulCalls > 0
+            ? ` and made <strong>${recap.successfulCalls} successful tool call${recap.successfulCalls === 1 ? '' : 's'}</strong>`
+            : '') +
+          `.`
+        : '';
+
+    const subject =
+      stage === 'expired'
+        ? 'Your AnythingMCP trial has ended — your work is saved'
+        : stage === 'warn1'
+          ? 'Last day of your AnythingMCP trial'
+          : `Your AnythingMCP trial ends in ${recap.daysLeft} days`;
+
+    const intro =
+      stage === 'expired'
+        ? `<p>Hi ${name},</p>
+           <p>Your 7-day trial has ended. ${built} <strong>Nothing was deleted</strong> — your connectors, MCP servers and configuration are preserved. Upgrade to pick up exactly where you left off.</p>`
+        : stage === 'warn1'
+          ? `<p>Hi ${name},</p>
+             <p>Your AnythingMCP trial ends <strong>tomorrow</strong>. ${built} Upgrade now so your agents keep calling your tools without interruption.</p>`
+          : `<p>Hi ${name},</p>
+             <p>Your AnythingMCP trial ends in <strong>${recap.daysLeft} days</strong>. ${built} Pick a plan to keep it all running.</p>`;
+
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        ${intro}
+        <p><a href="${pricingUrl}" style="display:inline-block;background:#d97757;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View plans &amp; upgrade →</a></p>
+        <p style="font-size:13px;color:#666;">Already have a key? Enter it at <a href="${cloudUrl}/settings/license">${cloudUrl.replace(/^https?:\/\//, '')}/settings/license</a>.</p>
+        <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;" />
+        <p style="color: #a3a3a3; font-size: 11px;">You're receiving this because your workspace is on a trial at cloud.anythingmcp.com.</p>
+      </div>
+    `;
+    const text =
+      `Hi ${name},\n\n` +
+      (stage === 'expired'
+        ? `Your 7-day AnythingMCP trial has ended. Nothing was deleted — your connectors and configuration are preserved. Upgrade to continue.\n\n`
+        : stage === 'warn1'
+          ? `Your AnythingMCP trial ends tomorrow. Upgrade so your agents keep working.\n\n`
+          : `Your AnythingMCP trial ends in ${recap.daysLeft} days. Upgrade to keep it running.\n\n`) +
+      `View plans: ${pricingUrl}\nEnter a key: ${cloudUrl}/settings/license`;
+
+    try {
+      await transport.transporter.sendMail({ from: transport.from, to, subject, html, text });
+      this.logger.log(`Trial-${stage} email sent to ${to}`);
+      return true;
+    } catch (err) {
+      this.logger.error(`Failed to send trial-${stage} email to ${to}: ${err}`);
+      return false;
+    }
+  }
+
   async sendActivationReminderEmail(
     to: string,
     name: string,
