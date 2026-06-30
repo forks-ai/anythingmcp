@@ -168,7 +168,12 @@ export class McpCombinedAuthGuard implements CanActivate {
     const host =
       (req.headers['x-forwarded-host'] as string) || req.headers.host;
     const baseUrl = host ? `${proto}://${host}` : (this.configService.get<string>('SERVER_URL') || 'http://localhost:4000');
-    const resourceMetadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+    // RFC 9728: the protected-resource metadata URL appends the resource path
+    // (e.g. /mcp/<serverId>) to the well-known prefix, so each per-server
+    // resource advertises its own metadata. Falls back to the root document.
+    const resourceMetadataUrl = reqPath.startsWith('/mcp/')
+      ? `${baseUrl}/.well-known/oauth-protected-resource${reqPath}`
+      : `${baseUrl}/.well-known/oauth-protected-resource`;
 
     res.setHeader(
       'WWW-Authenticate',
