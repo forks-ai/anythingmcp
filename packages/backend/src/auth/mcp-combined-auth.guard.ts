@@ -41,6 +41,17 @@ export class McpCombinedAuthGuard implements CanActivate {
       return true;
     }
 
+    // MCP Streamable HTTP: a GET to the endpoint opens (or rejects with 405) an
+    // SSE stream. Spec-compliant clients — and Microsoft Copilot Studio's
+    // connection probe — expect the transport's own 405 here, not an auth 401.
+    // Let GET through: the controller returns 405 in stateless mode (or routes
+    // to the authenticated session when a valid mcp-session-id is presented).
+    // GET never returns tenant data, so this exposes nothing.
+    if (req.method === 'GET') {
+      req.user = { authMethod: 'none' };
+      return true;
+    }
+
     const mode = this.configService.get<string>('MCP_AUTH_MODE') || 'none';
     const configuredApiKey = this.configService.get<string>('MCP_API_KEY');
     const mcpBearerToken = this.configService.get<string>('MCP_BEARER_TOKEN');
@@ -168,7 +179,12 @@ export class McpCombinedAuthGuard implements CanActivate {
     const host =
       (req.headers['x-forwarded-host'] as string) || req.headers.host;
     const baseUrl = host ? `${proto}://${host}` : (this.configService.get<string>('SERVER_URL') || 'http://localhost:4000');
-    const resourceMetadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+    // RFC 9728: the protected-resource metadata URL appends the resource path
+    // (e.g. /mcp/<serverId>) to the well-known prefix, so each per-server
+    // resource advertises its own metadata. Falls back to the root document.
+    const resourceMetadataUrl = reqPath.startsWith('/mcp/')
+      ? `${baseUrl}/.well-known/oauth-protected-resource${reqPath}`
+      : `${baseUrl}/.well-known/oauth-protected-resource`;
 
     res.setHeader(
       'WWW-Authenticate',

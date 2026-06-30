@@ -89,6 +89,19 @@ export class McpEndpointController {
     private readonly sessionManager: McpSessionManager,
   ) {}
 
+  // Streamable-HTTP response framing. Default: SSE-framed responses
+  // (`text/event-stream`), the spec-standard envelope that also carries
+  // streaming and server-initiated notifications. Set
+  // MCP_STREAMABLE_JSON_RESPONSE=true for single-shot `application/json`
+  // responses instead — required by Microsoft Copilot Studio, whose MCP
+  // client cannot deserialize SSE-framed responses ("response could not be
+  // deserialized as JSON"). JSON is spec-compliant and handled by every
+  // compliant client (incl. Claude); the cloud deployment enables it by
+  // default (see docker-compose.cloud.yml).
+  private jsonResponseEnabled(): boolean {
+    return process.env.MCP_STREAMABLE_JSON_RESPONSE === 'true';
+  }
+
   // ─── Public, anonymous, static demo MCP server ──────────────────────────
   // A self-describing MCP endpoint at the EXACT path /mcp/demo. It exposes only
   // static "how to use AnythingMCP" tools and NEVER resolves a serverId, queries
@@ -183,7 +196,7 @@ export class McpEndpointController {
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
-      enableJsonResponse: true,
+      enableJsonResponse: this.jsonResponseEnabled(),
     });
     try {
       await mcpServer.connect(transport);
@@ -356,7 +369,7 @@ export class McpEndpointController {
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless mode
-      enableJsonResponse: true,
+      enableJsonResponse: this.jsonResponseEnabled(),
     });
 
     try {
@@ -473,7 +486,7 @@ export class McpEndpointController {
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
-      enableJsonResponse: true,
+      enableJsonResponse: this.jsonResponseEnabled(),
       onsessioninitialized: (sid) => {
         sessionId = sid;
         this.sessionManager.add({
