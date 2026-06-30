@@ -89,6 +89,14 @@ export class McpEndpointController {
     private readonly sessionManager: McpSessionManager,
   ) {}
 
+  // Streamable-HTTP response framing. Default: SSE-framed responses
+  // (`text/event-stream`), which is the spec-standard and what some clients
+  // (e.g. Microsoft Copilot Studio) require. Set MCP_STREAMABLE_JSON_RESPONSE=true
+  // to force the older single-shot `application/json` responses instead.
+  private jsonResponseEnabled(): boolean {
+    return process.env.MCP_STREAMABLE_JSON_RESPONSE === 'true';
+  }
+
   // ─── Public, anonymous, static demo MCP server ──────────────────────────
   // A self-describing MCP endpoint at the EXACT path /mcp/demo. It exposes only
   // static "how to use AnythingMCP" tools and NEVER resolves a serverId, queries
@@ -183,7 +191,7 @@ export class McpEndpointController {
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
-      enableJsonResponse: true,
+      enableJsonResponse: this.jsonResponseEnabled(),
     });
     try {
       await mcpServer.connect(transport);
@@ -356,7 +364,7 @@ export class McpEndpointController {
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless mode
-      enableJsonResponse: true,
+      enableJsonResponse: this.jsonResponseEnabled(),
     });
 
     try {
@@ -473,7 +481,7 @@ export class McpEndpointController {
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
-      enableJsonResponse: true,
+      enableJsonResponse: this.jsonResponseEnabled(),
       onsessioninitialized: (sid) => {
         sessionId = sid;
         this.sessionManager.add({
