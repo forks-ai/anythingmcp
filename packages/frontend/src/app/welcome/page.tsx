@@ -251,6 +251,28 @@ export default function WelcomePage() {
           </div>
         )}
 
+        {/* Differentiator teaser — what makes AnythingMCP "smart" beyond a
+            proxy. It's empty for a brand-new account, so this is a concept
+            hook (no data, no AI), nudging toward the graph once tools exist. */}
+        <div className="mt-10 rounded-[14px] border border-[var(--border)] bg-[var(--brand-tint)] p-6">
+          <div className="flex items-start gap-4">
+            <span className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[10px] bg-[var(--surface)] text-[var(--brand)]">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="6" r="2.4" /><circle cx="19" cy="6" r="2.4" /><circle cx="12" cy="18" r="2.4" /><path d="M7.2 7.2 10.6 16M16.8 7.2 13.4 16M7 6h10" /></svg>
+            </span>
+            <div>
+              <h3 className="text-base font-semibold text-[var(--text)]">More than a proxy — it learns how your tools connect</h3>
+              <p className="mt-1 text-sm text-[var(--text-2)]">
+                As you use your connectors, AnythingMCP builds a <strong>knowledge graph</strong> of how your
+                entities relate and turns recurring patterns into <strong>skills</strong> — so your agent chains
+                the right tools in the right order instead of guessing. It gets smarter the more you use it.
+              </p>
+              <Link href="/knowledge-graph" className="mt-3 inline-block text-sm font-medium text-[var(--brand)] hover:underline">
+                Explore the knowledge graph →
+              </Link>
+            </div>
+          </div>
+        </div>
+
         <p className="mt-10 text-center text-xs text-[var(--text-2)]">
           You can always come back and add more connectors from the dashboard.
         </p>

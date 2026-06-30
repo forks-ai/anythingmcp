@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { connectors, audit } from '@/lib/api';
+import { connectors, audit, knowledgeGraph } from '@/lib/api';
 import { AppShell } from '@/components/app-shell';
 import { Card } from '@/components/ui/card';
 import { StatCard } from '@/components/ui/stat-card';
@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [healthResult, setHealthResult] = useState<HealthResult>(null);
   const [checkingHealth, setCheckingHealth] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
+  const [kgStats, setKgStats] = useState<{ nodes: number; edges: number } | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -48,6 +49,10 @@ export default function DashboardPage() {
         if (analyticsData) setAnalytics(analyticsData);
         if (connList.length > 0) {
           connectors.healthCheck(token).then(setHealthResult).catch(() => {});
+          // Knowledge-graph teaser counts (free static/observational layers; no AI).
+          knowledgeGraph.stats(token)
+            .then((s) => setKgStats({ nodes: s.nodes, edges: s.edges }))
+            .catch(() => {});
         }
       } catch {
         // Backend may not be running
@@ -271,7 +276,17 @@ export default function DashboardPage() {
             <div className="mb-1 text-sm font-semibold">Quick actions</div>
             <QuickAction href="/connectors/new" tone="info" title="Add a connector" desc="REST, SOAP, GraphQL, DB or MCP" icon={<PlusIcon />} />
             <QuickAction href="/mcp-server" tone="emerald" title="Configure a client" desc="Claude, ChatGPT, Cursor…" icon={<ServerStatIcon />} />
-            <QuickAction href="/knowledge-graph" tone="purple" title="Explore the graph" desc="See how your data connects" icon={<KgStatIcon />} />
+            <QuickAction
+              href="/knowledge-graph"
+              tone="purple"
+              title="Explore the graph"
+              desc={
+                kgStats && kgStats.nodes > 0
+                  ? `${kgStats.nodes} entities · ${kgStats.edges} connections`
+                  : 'See how your data connects'
+              }
+              icon={<KgStatIcon />}
+            />
 
             {recentConnectors.length > 0 && (
               <div className="mt-2 border-t border-[var(--border)] pt-3">
