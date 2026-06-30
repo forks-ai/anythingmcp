@@ -52,11 +52,27 @@ export class LocalOAuthStrategy extends Strategy {
       } as any;
     }
 
-    // Check if the user has already authenticated via the login form.
+    // Only consume the login cookie on the CALLBACK endpoint. The same strategy
+    // runs both for /authorize (initiate) and /callback (validate). @rekog's
+    // /authorize calls passport.authenticate() in its redirect form (no success
+    // callback): if the strategy calls success() there — which happens whenever a
+    // still-valid login_user cookie is present — passport falls through to next()
+    // and Express returns 404 "Cannot GET /authorize". That breaks any client
+    // (e.g. Microsoft Copilot Studio) that re-hits /authorize while the short-lived
+    // login cookie is still set. So on /authorize we ALWAYS redirect to login;
+    // the cookie is only read on /callback, where handleProviderCallback expects
+    // success().
+    const reqPath = (req.path || (req as any).originalUrl || '').split('?')[0];
+    const isCallback =
+      reqPath === this.options.callbackPath ||
+      reqPath.endsWith(this.options.callbackPath);
+
     // We REQUIRE the cookie to be HMAC-signed (req.signedCookies). Unsigned
     // values in req.cookies are rejected to prevent an attacker forging a
     // base64-encoded profile to bypass authentication.
-    const loginUserCookie = (req as any).signedCookies?.login_user;
+    const loginUserCookie = isCallback
+      ? (req as any).signedCookies?.login_user
+      : undefined;
 
     if (loginUserCookie) {
       try {

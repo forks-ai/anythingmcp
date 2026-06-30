@@ -459,6 +459,8 @@ $DOMAIN {
     reverse_proxy /authorize      app:4000
     reverse_proxy /token          app:4000
     reverse_proxy /register       app:4000
+    reverse_proxy /callback       app:4000
+    reverse_proxy /revoke         app:4000
     reverse_proxy /auth/*         app:4000
 
     # Frontend (catch-all)
