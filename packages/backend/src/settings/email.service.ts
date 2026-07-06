@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import axios from 'axios';
 import { SiteSettingsService } from './site-settings.service';
+import { OrgSettingsService } from './org-settings.service';
 import { PrismaService } from '../common/prisma.service';
 
 const LICENSE_API_URL =
@@ -16,8 +17,31 @@ export class EmailService {
 
   constructor(
     private readonly siteSettings: SiteSettingsService,
+    private readonly orgSettings: OrgSettingsService,
     private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Resolve the SMTP config to use: the org's own SMTP when an
+   * organizationId is given (falling back to the global site config), else the
+   * global site config. This is what makes per-org SMTP entered in Settings →
+   * Admin actually get used by the sender/tester (previously everything read
+   * only the global site config, so org SMTP was saved but never applied).
+   */
+  private async resolveSmtp(organizationId?: string) {
+    const raw: any = organizationId
+      ? await this.orgSettings.getSmtpConfig(organizationId)
+      : await this.siteSettings.getSmtpConfig();
+    if (!raw || !raw.host) return null;
+    return {
+      host: String(raw.host),
+      port: Number(raw.port),
+      secure: !!raw.secure,
+      user: raw.user,
+      pass: raw.pass,
+      from: raw.from,
+    };
+  }
 
   // ── Password Reset (SMTP with external API fallback) ─────────────────────
 
@@ -95,8 +119,8 @@ export class EmailService {
 
   // ── Invitation Email (SMTP with external API fallback) ────────────────────
 
-  private async createTransporter() {
-    const smtp = await this.siteSettings.getSmtpConfig();
+  private async createTransporter(organizationId?: string) {
+    const smtp = await this.resolveSmtp(organizationId);
     if (!smtp) return null;
     return {
       transporter: nodemailer.createTransport({
@@ -114,8 +138,9 @@ export class EmailService {
     inviteUrl: string,
     invitedByName: string,
     roleName: string,
+    organizationId?: string,
   ): Promise<{ sent: boolean; error?: string }> {
-    const transport = await this.createTransporter();
+    const transport = await this.createTransporter(organizationId);
 
     if (transport) {
       try {
@@ -534,8 +559,8 @@ export class EmailService {
 
   // ── SMTP Test ─────────────────────────────────────────────────────────────
 
-  async testConnection(): Promise<{ ok: boolean; message: string }> {
-    const smtp = await this.siteSettings.getSmtpConfig();
+  async testConnection(organizationId?: string): Promise<{ ok: boolean; message: string }> {
+    const smtp = await this.resolveSmtp(organizationId);
     if (!smtp) {
       return { ok: false, message: 'SMTP not configured' };
     }

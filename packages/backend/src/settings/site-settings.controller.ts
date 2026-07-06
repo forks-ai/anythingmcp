@@ -143,8 +143,8 @@ export class SiteSettingsAdminController {
 
   @Post('smtp/test')
   @ApiOperation({ summary: 'Test SMTP connection (ADMIN)' })
-  async testSmtp() {
-    return this.emailService.testConnection();
+  async testSmtp(@Req() req: any) {
+    return this.emailService.testConnection(req.user.organizationId);
   }
 
   @Get('footer-links')
