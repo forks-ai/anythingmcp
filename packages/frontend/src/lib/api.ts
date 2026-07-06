@@ -596,6 +596,12 @@ export const license = {
       method: 'POST',
       token,
     }),
+  billingPortal: (token: string, returnUrl?: string) =>
+    request<{ url: string }>('/api/license/billing-portal', {
+      method: 'POST',
+      body: { returnUrl },
+      token,
+    }),
   getInstanceId: () =>
     request<{ instanceId: string }>('/api/license/instance-id'),
   getUsage: (token?: string) =>
