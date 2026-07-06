@@ -115,8 +115,10 @@ export class SiteSettingsAdminController {
   @Get('smtp')
   @ApiOperation({ summary: 'Get SMTP configuration for current organization (ADMIN)' })
   async getSmtpConfig(@Req() req: any) {
-    const config = await this.orgSettings.getSmtpConfig(req.user.organizationId);
-    if (!config) return { configured: false };
+    // Org-only — never fall back to the global/system config, so operator
+    // credentials are never exposed to workspace admins.
+    const config = await this.orgSettings.getJson<any>(req.user.organizationId, 'smtp_config');
+    if (!config?.host) return { configured: false };
     return {
       configured: true,
       host: config.host,

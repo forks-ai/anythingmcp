@@ -21,26 +21,54 @@ export class EmailService {
     private readonly prisma: PrismaService,
   ) {}
 
-  /**
-   * Resolve the SMTP config to use: the org's own SMTP when an
-   * organizationId is given (falling back to the global site config), else the
-   * global site config. This is what makes per-org SMTP entered in Settings →
-   * Admin actually get used by the sender/tester (previously everything read
-   * only the global site config, so org SMTP was saved but never applied).
-   */
-  private async resolveSmtp(organizationId?: string) {
-    const raw: any = organizationId
-      ? await this.orgSettings.getSmtpConfig(organizationId)
-      : await this.siteSettings.getSmtpConfig();
+  private normalizeSmtp(raw: any) {
     if (!raw || !raw.host) return null;
     return {
       host: String(raw.host),
-      port: Number(raw.port),
+      port: Number(raw.port) || 587,
       secure: !!raw.secure,
-      user: raw.user,
-      pass: raw.pass,
+      user: raw.user ?? '',
+      pass: raw.pass ?? '',
       from: raw.from,
     };
+  }
+
+  /**
+   * System (operator) SMTP from ENV — the transactional fallback (e.g. Resend)
+   * used when an org hasn't configured its own SMTP. Read ONLY here and never
+   * returned by any API, so our credentials are never exposed to workspace
+   * admins. Configure on the server via SMTP_HOST/PORT/USER/PASS/FROM/SECURE.
+   */
+  private systemSmtp() {
+    const host = process.env.SMTP_HOST;
+    if (!host) return null;
+    const port = Number(process.env.SMTP_PORT) || 587;
+    return this.normalizeSmtp({
+      host,
+      port,
+      secure: process.env.SMTP_SECURE === 'true' || port === 465,
+      user: process.env.SMTP_USER || '',
+      pass: process.env.SMTP_PASS || '',
+      from:
+        process.env.SMTP_FROM ||
+        (process.env.SMTP_USER ? `AnythingMCP <${process.env.SMTP_USER}>` : 'AnythingMCP'),
+    });
+  }
+
+  /**
+   * Resolve the SMTP to send with: the ORG's own SMTP first (never the global
+   * site config — so operator credentials can't leak through the settings API),
+   * then the system/Resend fallback from ENV. Returns null if neither is set
+   * (callers then use the external-API fallback or skip).
+   */
+  private async resolveSmtp(organizationId?: string) {
+    if (organizationId) {
+      const org = this.normalizeSmtp(
+        await this.orgSettings.getJson<any>(organizationId, 'smtp_config'),
+      );
+      if (org) return org;
+    }
+    return this.systemSmtp();
   }
 
   // ── Password Reset (SMTP with external API fallback) ─────────────────────
