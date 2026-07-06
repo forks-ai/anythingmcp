@@ -177,10 +177,10 @@ export class AuthController {
       data: { userId, token: linkToken, code, expiresAt },
     });
 
-    // Build verification link URL — route through anythingmcp.com so the
-    // link domain matches the Resend sending domain (avoids spam filters).
+    // Link straight to the instance's verify-email page (the anythingmcp.com
+    // hop 404s behind the marketing site's i18n middleware).
     const instanceUrl = this.getFrontendUrl(req);
-    const verifyUrl = `https://anythingmcp.com/verify-email?token=${linkToken}&instance=${encodeURIComponent(instanceUrl)}`;
+    const verifyUrl = `${instanceUrl}/verify-email?token=${linkToken}`;
 
     // Send email
     try {
@@ -496,10 +496,12 @@ export class AuthController {
       },
     });
 
-    // Build invitation URL — route through anythingmcp.com so the
-    // link domain matches the Resend sending domain (avoids spam filters).
+    // Link straight to the instance's accept-invite page. (The old
+    // anythingmcp.com/accept-invite hop 404'd — that route is shadowed by the
+    // marketing site's i18n middleware — and it isn't needed now that we send
+    // via the org's own SMTP.)
     const instanceUrl = this.getFrontendUrl(req);
-    const inviteUrl = `https://anythingmcp.com/accept-invite?token=${inviteToken}&instance=${encodeURIComponent(instanceUrl)}`;
+    const inviteUrl = `${instanceUrl}/accept-invite?token=${inviteToken}`;
 
     // Get inviter's name for the email
     const inviter = await this.usersService.findById(req.user.sub);
@@ -518,6 +520,7 @@ export class AuthController {
       inviteUrl,
       inviterName,
       roleName,
+      req.user.organizationId,
     );
 
     return {
