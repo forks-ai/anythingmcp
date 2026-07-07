@@ -521,8 +521,10 @@ export const siteSettings = {
 export const adminSettings = {
   getSmtp: (token: string) =>
     request<{ configured: boolean; host?: string; port?: number; user?: string; from?: string; secure?: boolean }>('/api/admin/settings/smtp', { token }),
-  updateSmtp: (data: { host: string; port: number; user: string; pass: string; from?: string; secure?: boolean }, token: string) =>
+  updateSmtp: (data: { host: string; port: number; user: string; pass?: string; from?: string; secure?: boolean }, token: string) =>
     request<{ message: string }>('/api/admin/settings/smtp', { method: 'PUT', body: data, token }),
+  deleteSmtp: (token: string) =>
+    request<{ message: string }>('/api/admin/settings/smtp', { method: 'DELETE', token }),
   testSmtp: (token: string) =>
     request<{ ok: boolean; message: string }>('/api/admin/settings/smtp/test', { method: 'POST', token }),
   getFooterLinks: (token: string) =>

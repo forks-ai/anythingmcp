@@ -4,6 +4,7 @@ import axios from 'axios';
 import { SiteSettingsService } from './site-settings.service';
 import { OrgSettingsService } from './org-settings.service';
 import { PrismaService } from '../common/prisma.service';
+import { DeploymentService } from '../common/deployment.service';
 
 const LICENSE_API_URL =
   process.env.NODE_ENV === 'production'
@@ -19,7 +20,33 @@ export class EmailService {
     private readonly siteSettings: SiteSettingsService,
     private readonly orgSettings: OrgSettingsService,
     private readonly prisma: PrismaService,
+    private readonly deployment: DeploymentService,
   ) {}
+
+  /**
+   * Build a transport with aggressive timeouts. Cloud droplets black-hole the
+   * standard SMTP ports (25/465/587), and nodemailer's default connection
+   * timeout is 2 minutes — a misconfigured workspace SMTP made requests hang
+   * for many minutes (one real test clocked 16 min). 10s is plenty for any
+   * reachable server.
+   */
+  private buildTransport(smtp: {
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    pass: string;
+  }) {
+    return nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: { user: smtp.user, pass: smtp.pass },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
+    });
+  }
 
   private normalizeSmtp(raw: any) {
     if (!raw || !raw.host) return null;
@@ -56,19 +83,34 @@ export class EmailService {
   }
 
   /**
-   * Resolve the SMTP to send with: the ORG's own SMTP first (never the global
-   * site config — so operator credentials can't leak through the settings API),
-   * then the system/Resend fallback from ENV. Returns null if neither is set
-   * (callers then use the external-API fallback or skip).
+   * The org's own SMTP config, or null. Never falls back — callers decide
+   * what to do when the workspace hasn't configured (or has broken) SMTP.
+   */
+  private async orgSmtp(organizationId?: string) {
+    if (!organizationId) return null;
+    return this.normalizeSmtp(
+      await this.orgSettings.getJson<any>(organizationId, 'smtp_config'),
+    );
+  }
+
+  /**
+   * Operator/instance-level SMTP: the legacy site-settings config (self-hosted
+   * installs configured pre-multi-org), then the env-based system fallback
+   * (e.g. Resend/Mailgun on cloud). Read only server-side and never returned
+   * by any API, so operator credentials are never exposed to workspace admins.
+   */
+  private async instanceSmtp() {
+    const site = this.normalizeSmtp(await this.siteSettings.getSmtpConfig());
+    return site || this.systemSmtp();
+  }
+
+  /**
+   * Resolve the SMTP to send with: the ORG's own SMTP first, then the
+   * instance/system fallback. Returns null if neither is set (callers then
+   * use the external-API fallback or skip).
    */
   private async resolveSmtp(organizationId?: string) {
-    if (organizationId) {
-      const org = this.normalizeSmtp(
-        await this.orgSettings.getJson<any>(organizationId, 'smtp_config'),
-      );
-      if (org) return org;
-    }
-    return this.systemSmtp();
+    return (await this.orgSmtp(organizationId)) || this.instanceSmtp();
   }
 
   // ── Password Reset (SMTP with external API fallback) ─────────────────────
@@ -77,19 +119,11 @@ export class EmailService {
     to: string,
     resetUrl: string,
   ): Promise<boolean> {
-    const smtp = await this.siteSettings.getSmtpConfig();
+    const smtp = await this.instanceSmtp();
 
     if (smtp) {
       try {
-        const transporter = nodemailer.createTransport({
-          host: smtp.host,
-          port: smtp.port,
-          secure: smtp.secure,
-          auth: {
-            user: smtp.user,
-            pass: smtp.pass,
-          },
-        });
+        const transporter = this.buildTransport(smtp);
 
         await transporter.sendMail({
           from: smtp.from || `AnythingMCP <${smtp.user}>`,
@@ -151,14 +185,40 @@ export class EmailService {
     const smtp = await this.resolveSmtp(organizationId);
     if (!smtp) return null;
     return {
-      transporter: nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.secure,
-        auth: { user: smtp.user, pass: smtp.pass },
-      }),
+      transporter: this.buildTransport(smtp),
       from: smtp.from || `AnythingMCP <${smtp.user}>`,
     };
+  }
+
+  /**
+   * Transports to try in order for org-scoped mail: the workspace's own SMTP
+   * first, then the instance/system fallback. A broken workspace SMTP must
+   * never black-hole an invitation — the mail still goes out via the
+   * platform sender and the admin gets told their SMTP failed.
+   */
+  private async transportCandidates(organizationId?: string) {
+    const candidates: Array<{
+      transporter: nodemailer.Transporter;
+      from: string;
+      source: 'workspace' | 'system';
+    }> = [];
+    const org = await this.orgSmtp(organizationId);
+    if (org) {
+      candidates.push({
+        transporter: this.buildTransport(org),
+        from: org.from || `AnythingMCP <${org.user}>`,
+        source: 'workspace',
+      });
+    }
+    const instance = await this.instanceSmtp();
+    if (instance) {
+      candidates.push({
+        transporter: this.buildTransport(instance),
+        from: instance.from || `AnythingMCP <${instance.user}>`,
+        source: 'system',
+      });
+    }
+    return candidates;
   }
 
   async sendInvitationEmail(
@@ -168,9 +228,10 @@ export class EmailService {
     roleName: string,
     organizationId?: string,
   ): Promise<{ sent: boolean; error?: string }> {
-    const transport = await this.createTransporter(organizationId);
+    const candidates = await this.transportCandidates(organizationId);
+    let workspaceError: string | undefined;
 
-    if (transport) {
+    for (const transport of candidates) {
       try {
         await transport.transporter.sendMail({
           from: transport.from,
@@ -192,16 +253,28 @@ export class EmailService {
           text: `You're Invited!\n\n${invitedByName} has invited you to join AnythingMCP as ${roleName}.\n\nAccept your invitation: ${inviteUrl}\n\nThis link expires in 48 hours.`,
         });
 
-        this.logger.log(`Invitation email sent to ${to}`);
-        return { sent: true };
+        this.logger.log(`Invitation email sent to ${to} (via ${transport.source} SMTP)`);
+        return {
+          sent: true,
+          ...(workspaceError
+            ? {
+                error: `Your workspace SMTP failed (${workspaceError}) — the invitation was delivered by the platform mail service instead.`,
+              }
+            : {}),
+        };
       } catch (err: any) {
-        this.logger.error(`Failed to send invitation via SMTP to ${to}: ${err}`);
-        return { sent: false, error: err.message || 'SMTP delivery failed' };
+        this.logger.error(
+          `Failed to send invitation via ${transport.source} SMTP to ${to}: ${err}`,
+        );
+        if (transport.source === 'workspace') {
+          workspaceError = err.message || 'SMTP delivery failed';
+        } else {
+          return { sent: false, error: err.message || 'SMTP delivery failed' };
+        }
       }
     }
-
-    // Fallback: send via external API (requires active license)
-    // Try to find a valid license key: first any active license in DB, then site_settings
+    // No SMTP delivered it (none configured, or workspace SMTP failed with no
+    // system fallback) — try the external API (requires active license).
     let licenseKey = await this.siteSettings.get('license_key');
     if (!licenseKey) {
       const activeLicense = await this.prisma.license.findFirst({
@@ -212,14 +285,23 @@ export class EmailService {
       if (activeLicense) licenseKey = activeLicense.licenseKey;
     }
     this.logger.log(
-      `SMTP not configured, using external API fallback (licenseKey ${licenseKey ? 'present' : 'MISSING'})`,
+      `Using external API fallback for invitation (licenseKey ${licenseKey ? 'present' : 'MISSING'})`,
     );
-    return this.sendViaExternalApiWithError('/api/email/invite', {
+    const result = await this.sendViaExternalApiWithError('/api/email/invite', {
       email: to,
       inviterName: invitedByName,
       instanceUrl: inviteUrl,
       ...(licenseKey ? { licenseKey } : {}),
     });
+    if (workspaceError) {
+      return result.sent
+        ? {
+            sent: true,
+            error: `Your workspace SMTP failed (${workspaceError}) — the invitation was delivered by the platform mail service instead.`,
+          }
+        : { sent: false, error: workspaceError };
+    }
+    return result;
   }
 
   // ── Welcome Email (SMTP with external API fallback) ───────────────────────
@@ -588,26 +670,38 @@ export class EmailService {
   // ── SMTP Test ─────────────────────────────────────────────────────────────
 
   async testConnection(organizationId?: string): Promise<{ ok: boolean; message: string }> {
-    const smtp = await this.resolveSmtp(organizationId);
+    // Test the WORKSPACE config only — testing the hidden system fallback
+    // would report "successful" for settings the admin never entered.
+    const smtp = await this.orgSmtp(organizationId);
+    const hasFallback = !!(await this.instanceSmtp());
+
     if (!smtp) {
-      return { ok: false, message: 'SMTP not configured' };
+      return hasFallback
+        ? {
+            ok: true,
+            message:
+              'No workspace SMTP configured — emails are delivered by the platform mail service.',
+          }
+        : { ok: false, message: 'SMTP not configured' };
     }
 
     try {
-      const transporter = nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.secure,
-        auth: {
-          user: smtp.user,
-          pass: smtp.pass,
-        },
-      });
-
-      await transporter.verify();
+      await this.buildTransport(smtp).verify();
       return { ok: true, message: 'SMTP connection successful' };
     } catch (err: any) {
-      return { ok: false, message: err.message || 'Connection failed' };
+      let message = err.message || 'Connection failed';
+      if (
+        this.deployment.isCloud() &&
+        [25, 465, 587].includes(smtp.port) &&
+        /timeout|ETIMEDOUT|ECONNREFUSED/i.test(message)
+      ) {
+        message +=
+          ' — note: the cloud network blocks outbound SMTP ports 25/465/587. Use a provider that supports port 2525, or remove the workspace SMTP config to send via the platform mail service.';
+      } else if (hasFallback) {
+        message +=
+          ' — emails will fall back to the platform mail service until this is fixed.';
+      }
+      return { ok: false, message };
     }
   }
 }

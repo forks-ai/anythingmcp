@@ -467,7 +467,9 @@ export class AuthController {
       // User exists but not in this org — allow invitation for multi-org membership
     }
 
-    // Check for existing pending invitation to this org
+    // Reuse an existing pending invitation instead of rejecting: throwing a
+    // 409 here left admins stuck with no way to get the link after a failed
+    // email send (the response with the URL only comes with a NEW invite).
     const existingInvite = await this.prisma.invitationToken.findFirst({
       where: {
         email: dto.email,
@@ -476,25 +478,25 @@ export class AuthController {
         expiresAt: { gt: new Date() },
       },
     });
-    if (existingInvite) {
-      throw new ConflictException('An active invitation already exists for this email');
+
+    const inviteToken = existingInvite
+      ? existingInvite.token
+      : crypto.randomBytes(32).toString('hex');
+
+    if (!existingInvite) {
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
+      await this.prisma.invitationToken.create({
+        data: {
+          email: dto.email,
+          token: inviteToken,
+          role: dto.role,
+          mcpRoleId: dto.mcpRoleId || null,
+          invitedBy: req.user.sub,
+          organizationId: req.user.organizationId,
+          expiresAt,
+        },
+      });
     }
-
-    // Generate invitation token
-    const inviteToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
-
-    await this.prisma.invitationToken.create({
-      data: {
-        email: dto.email,
-        token: inviteToken,
-        role: dto.role,
-        mcpRoleId: dto.mcpRoleId || null,
-        invitedBy: req.user.sub,
-        organizationId: req.user.organizationId,
-        expiresAt,
-      },
-    });
 
     // Link straight to the instance's accept-invite page. (The old
     // anythingmcp.com/accept-invite hop 404'd — that route is shadowed by the
@@ -523,10 +525,13 @@ export class AuthController {
       req.user.organizationId,
     );
 
+    const created = existingInvite ? 'A pending invitation already existed' : 'Invitation created';
     return {
       message: emailResult.sent
-        ? `Invitation sent to ${dto.email}`
-        : `Invitation created for ${dto.email}, but the email could not be sent. Share the link manually.`,
+        ? existingInvite
+          ? `${created} for ${dto.email} — the email was re-sent.`
+          : `Invitation sent to ${dto.email}`
+        : `${created} for ${dto.email}, but the email could not be sent. Share the link manually.`,
       inviteUrl,
       emailSent: emailResult.sent,
       ...(emailResult.error ? { emailError: emailResult.error } : {}),
