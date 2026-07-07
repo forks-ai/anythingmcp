@@ -93,8 +93,25 @@ export default function AdminSettingsPage() {
     setSmtpMsg('Testing connection...');
     try {
       const result = await adminSettings.testSmtp(token);
-      setSmtpMsg(result.ok ? 'Connection successful!' : `Error: ${result.message}`);
-      setTimeout(() => setSmtpMsg(''), 5000);
+      setSmtpMsg(result.ok ? result.message : `Error: ${result.message}`);
+    } catch (err: any) {
+      setSmtpMsg(`Error: ${err.message}`);
+    }
+  };
+
+  const handleRemoveSmtp = async () => {
+    if (!token) return;
+    if (!confirm('Remove the workspace SMTP configuration? Emails will be sent by the platform mail service instead.')) return;
+    try {
+      await adminSettings.deleteSmtp(token);
+      setSmtpConfigured(false);
+      setSmtpHost('');
+      setSmtpPort(587);
+      setSmtpUser('');
+      setSmtpPass('');
+      setSmtpFrom('');
+      setSmtpSecure(false);
+      setSmtpMsg('SMTP configuration removed — emails now use the platform mail service');
     } catch (err: any) {
       setSmtpMsg(`Error: ${err.message}`);
     }
@@ -205,16 +222,22 @@ export default function AdminSettingsPage() {
               </p>
             )}
             <div className="flex gap-2">
+              {/* Existing config: password field may stay empty (kept server-side) */}
               <Button
                 onClick={handleSaveSmtp}
-                disabled={!smtpHost || !smtpUser || !smtpPass}
+                disabled={!smtpHost || !smtpUser || (!smtpPass && !smtpConfigured)}
               >
                 Save SMTP Config
               </Button>
               {smtpConfigured && (
-                <Button variant="secondary" onClick={handleTestSmtp}>
-                  Test Connection
-                </Button>
+                <>
+                  <Button variant="secondary" onClick={handleTestSmtp}>
+                    Test Connection
+                  </Button>
+                  <Button variant="ghost" onClick={handleRemoveSmtp} className="text-[var(--danger)] hover:text-[var(--danger)]">
+                    Remove
+                  </Button>
+                </>
               )}
             </div>
           </div>

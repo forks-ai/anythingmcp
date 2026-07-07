@@ -26,8 +26,16 @@ export default function LicenseSettingsPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
 
   const isCloud = deploymentMode === 'cloud';
+  // The Stripe billing portal only applies to a real paid subscription —
+  // not the free trial or a self-hosted community license.
+  const hasBillableSubscription =
+    isCloud &&
+    !!status?.plan &&
+    status.plan !== 'trial' &&
+    status.plan !== 'community';
 
   const loadStatus = async () => {
     try {
@@ -92,6 +100,23 @@ export default function LicenseSettingsPage() {
       setError(err.message || 'Failed to register community license');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBillingPortal = async () => {
+    if (!token) return;
+    setError('');
+    setMessage('');
+    setOpeningPortal(true);
+    try {
+      const { url } = await license.billingPortal(
+        token,
+        typeof window !== 'undefined' ? window.location.href : undefined,
+      );
+      window.location.href = url;
+    } catch (err: any) {
+      setError(err.message || 'Failed to open the billing portal');
+      setOpeningPortal(false);
     }
   };
 
@@ -223,10 +248,15 @@ export default function LicenseSettingsPage() {
         )}
 
         {status?.plan && (
-          <div className="mt-4 pt-4 border-t border-[var(--border)]">
+          <div className="mt-4 pt-4 border-t border-[var(--border)] flex flex-wrap gap-3">
             <Button variant="secondary" onClick={handleVerify} disabled={verifying}>
               {verifying ? 'Verifying...' : 'Verify Now'}
             </Button>
+            {hasBillableSubscription && (
+              <Button onClick={handleBillingPortal} disabled={openingPortal}>
+                {openingPortal ? 'Opening…' : 'Manage subscription & billing'}
+              </Button>
+            )}
           </div>
         )}
       </Card>
