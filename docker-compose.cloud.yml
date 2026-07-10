@@ -104,7 +104,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      # Cold start loads the full connector/tool catalog (~18.5k tools, ~90s).
+      # start_period must comfortably exceed that: during it, failing probes keep
+      # the container in "starting" (not "unhealthy"), so `docker compose --wait`
+      # in deploy-cloud.yml keeps waiting and the first healthy probe (~90s) turns
+      # the deploy green. Too short (was 30s) → the container flipped to unhealthy
+      # mid-boot and --wait aborted, failing a deploy that was actually coming up
+      # fine (false negative). A genuinely dead app never becomes healthy, so once
+      # start_period elapses it still goes unhealthy and the deploy fails for real.
+      start_period: 180s
     restart: unless-stopped
 
   # PostgreSQL Database

@@ -124,8 +124,12 @@ USER appuser
 EXPOSE 3000 4000
 
 # Health check — backend exposes /health on port 4000.
-# 30s interval, 5s timeout, 30s start period, 3 retries before unhealthy.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+# start-period must exceed cold-start time: the app loads the full connector/tool
+# catalog on boot (can be ~90s+ with a large catalog). During start-period a
+# failing probe keeps the container "starting" (not "unhealthy"), so orchestrators
+# that gate on health don't abort a deploy that is still legitimately coming up.
+# 30s interval, 5s timeout, 120s start period, 3 retries before unhealthy.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:4000/health || exit 1
 
 CMD ["./start.sh"]
