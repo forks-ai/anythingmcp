@@ -8,6 +8,7 @@ import { findDemoByTool } from '@/lib/demo-connectors';
 import { ToolEditor } from '@/components/tool-editor';
 import { McpAssignModal } from '@/components/mcp-assign-modal';
 import { AppSelect } from '@/components/ui/select';
+import { HeadersEditor, headerRowsToObject, objectToHeaderRows, type HeaderRow } from '@/components/headers-editor';
 import { AppShell } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -23,6 +24,8 @@ const IMPORT_SOURCES = [
   { id: 'json', label: 'JSON Definition', placeholder: '[\n  {\n    "name": "get_users",\n    "description": "Fetch users",\n    "parameters": { "type": "object", "properties": { "limit": { "type": "number" } } },\n    "endpointMapping": { "method": "GET", "path": "/users", "queryParams": { "limit": "$limit" } }\n  }\n]' },
   { id: 'mcp', label: 'MCP Discovery', placeholder: 'Enter MCP endpoint path (default: /mcp)' },
 ];
+
+const EDIT_DEFAULT_LOGIN_BODY = '{\n  "username": "${username}",\n  "password": "${password}"\n}';
 
 export default function ConnectorDetailPage() {
   const { token } = useAuth();
@@ -49,6 +52,16 @@ export default function ConnectorDetailPage() {
   const [editAuthType, setEditAuthType] = useState('NONE');
   const [editAuthKey, setEditAuthKey] = useState('');
   const [editAuthValue, setEditAuthValue] = useState('');
+  // LOGIN_TOKEN (credentials → short-lived token, auto-refreshed) fields
+  const [editLtLoginUrl, setEditLtLoginUrl] = useState('');
+  const [editLtMethod, setEditLtMethod] = useState('POST');
+  const [editLtUsername, setEditLtUsername] = useState('');
+  const [editLtPassword, setEditLtPassword] = useState('');
+  const [editLtLoginBody, setEditLtLoginBody] = useState(EDIT_DEFAULT_LOGIN_BODY);
+  const [editLtTokenPath, setEditLtTokenPath] = useState('token');
+  const [editLtTtl, setEditLtTtl] = useState('');
+  const [editLtRefreshOn401, setEditLtRefreshOn401] = useState(true);
+  const [editHeaderRows, setEditHeaderRows] = useState<HeaderRow[]>([]);
   const [editDbReadOnly, setEditDbReadOnly] = useState(true);
   const [editInstructions, setEditInstructions] = useState('');
   const [msg, setMsg] = useState('');
@@ -105,6 +118,10 @@ export default function ConnectorDetailPage() {
       // Don't pre-fill credentials — they are encrypted on the server
       setEditAuthKey('');
       setEditAuthValue('');
+      // authConfig is encrypted server-side, so LOGIN_TOKEN fields start empty;
+      // headers are stored in the clear and can be pre-filled for editing.
+      setEditLtPassword('');
+      setEditHeaderRows(objectToHeaderRows(c.headers as Record<string, string> | null));
       setEditDbReadOnly((c.config as any)?.readOnly !== false);
       setToolList(c.tools || []);
       // Load env vars
@@ -153,6 +170,30 @@ export default function ConnectorDetailPage() {
       case 'BASIC_AUTH':
         if (!editAuthKey && !editAuthValue) return undefined;
         return { username: editAuthKey, password: editAuthValue };
+      case 'LOGIN_TOKEN': {
+        // Re-entering the password is required to (re)write the whole config;
+        // leaving it empty keeps the existing encrypted credentials untouched.
+        if (!editLtPassword) return undefined;
+        let loginBody: unknown;
+        const raw = editLtLoginBody.trim();
+        if (raw) {
+          try {
+            loginBody = JSON.parse(raw);
+          } catch {
+            throw new Error('Login body must be valid JSON.');
+          }
+        }
+        return {
+          loginUrl: editLtLoginUrl,
+          loginMethod: editLtMethod || 'POST',
+          ...(loginBody !== undefined ? { loginBody } : {}),
+          username: editLtUsername,
+          password: editLtPassword,
+          tokenJsonPath: editLtTokenPath || 'token',
+          ...(editLtTtl.trim() ? { tokenTTLSeconds: Number(editLtTtl) } : {}),
+          refreshOn401: editLtRefreshOn401,
+        };
+      }
       default:
         return undefined;
     }
@@ -171,6 +212,11 @@ export default function ConnectorDetailPage() {
       };
       const authConfig = buildAuthConfig();
       if (authConfig) data.authConfig = authConfig;
+      if (connector.type !== 'DATABASE' && connector.type !== 'MCP') {
+        // Editor is pre-filled with current headers, so this round-trips
+        // untouched headers and applies any edits/removals the user made.
+        data.headers = headerRowsToObject(editHeaderRows);
+      }
       if (connector.type === 'DATABASE') {
         data.config = { readOnly: editDbReadOnly };
       }
@@ -659,7 +705,7 @@ export default function ConnectorDetailPage() {
                 <label className="block text-sm font-medium mb-1">Authentication</label>
                 <AppSelect
                   value={editAuthType}
-                  onValueChange={(v) => { setEditAuthType(v); setEditAuthKey(''); setEditAuthValue(''); }}
+                  onValueChange={(v) => { setEditAuthType(v); setEditAuthKey(''); setEditAuthValue(''); setEditLtPassword(''); }}
                   className="w-full border border-[var(--border)] rounded-[9px] px-3 py-2 text-sm bg-[var(--surface)] focus:outline-none focus:border-[var(--border-strong)]"
                   options={[
                     { value: 'NONE', label: 'None' },
@@ -667,6 +713,7 @@ export default function ConnectorDetailPage() {
                     { value: 'BEARER_TOKEN', label: 'Bearer Token' },
                     { value: 'BASIC_AUTH', label: 'Basic Auth' },
                     { value: 'OAUTH2', label: 'OAuth 2.0' },
+                    { value: 'LOGIN_TOKEN', label: 'Login → Token (auto-refresh)' },
                   ]}
                 />
               </div>
@@ -717,10 +764,64 @@ export default function ConnectorDetailPage() {
                   </p>
                 </div>
               )}
-              {editAuthType !== 'NONE' && editAuthType !== 'OAUTH2' && (
+              {editAuthType === 'LOGIN_TOKEN' && (
+                <div className="space-y-3">
+                  <div className="rounded-[9px] border border-[var(--t-info-fg)]/20 bg-[var(--t-info-bg)] p-3 text-xs text-[var(--t-info-fg)]">
+                    For APIs with short-lived tokens (e.g. HRworks): we POST your credentials to the login endpoint, read the token from the response, send it as a Bearer token, and refresh it automatically before it expires. Re-enter the password/secret to change this configuration; leave it empty to keep the current one.
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Login URL</label>
+                    <input type="text" value={editLtLoginUrl} onChange={(e) => setEditLtLoginUrl(e.target.value)} placeholder="https://api.hrworks.de/v2/authentication" className="w-full border border-[var(--border)] rounded-[9px] px-3 py-2 text-sm font-mono bg-[var(--surface)] focus:outline-none focus:border-[var(--border-strong)]" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Username / Access key</label>
+                      <input type="text" value={editLtUsername} onChange={(e) => setEditLtUsername(e.target.value)} placeholder="access key" className="w-full border border-[var(--border)] rounded-[9px] px-3 py-2 text-sm font-mono bg-[var(--surface)] focus:outline-none focus:border-[var(--border-strong)]" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Password / Secret</label>
+                      <input type="password" value={editLtPassword} onChange={(e) => setEditLtPassword(e.target.value)} placeholder="Leave empty to keep current" className="w-full border border-[var(--border)] rounded-[9px] px-3 py-2 text-sm font-mono bg-[var(--surface)] focus:outline-none focus:border-[var(--border-strong)]" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Login request body (JSON)</label>
+                    <textarea value={editLtLoginBody} onChange={(e) => setEditLtLoginBody(e.target.value)} rows={4} className="w-full border border-[var(--border)] rounded-[9px] px-3 py-2 text-sm font-mono bg-[var(--surface)] resize-y focus:outline-none focus:border-[var(--border-strong)]" />
+                    <p className="text-xs text-[var(--text-3)] mt-1">
+                      Use <code>{'${username}'}</code> / <code>{'${password}'}</code> placeholders. HRworks uses <code>{'{ "accessKey": "${username}", "secretAccessKey": "${password}" }'}</code>.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Method</label>
+                      <AppSelect
+                        value={editLtMethod}
+                        onValueChange={setEditLtMethod}
+                        className="w-full border border-[var(--border)] rounded-[9px] px-3 py-2 text-sm bg-[var(--surface)] focus:outline-none focus:border-[var(--border-strong)]"
+                        options={[{ value: 'POST', label: 'POST' }, { value: 'GET', label: 'GET' }]}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Token JSON path</label>
+                      <input type="text" value={editLtTokenPath} onChange={(e) => setEditLtTokenPath(e.target.value)} placeholder="token" className="w-full border border-[var(--border)] rounded-[9px] px-3 py-2 text-sm font-mono bg-[var(--surface)] focus:outline-none focus:border-[var(--border-strong)]" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Token TTL (s)</label>
+                      <input type="number" value={editLtTtl} onChange={(e) => setEditLtTtl(e.target.value)} placeholder="900" className="w-full border border-[var(--border)] rounded-[9px] px-3 py-2 text-sm font-mono bg-[var(--surface)] focus:outline-none focus:border-[var(--border-strong)]" />
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-[var(--text-2)]">
+                    <input type="checkbox" checked={editLtRefreshOn401} onChange={(e) => setEditLtRefreshOn401(e.target.checked)} />
+                    Re-login and retry automatically on a 401 response
+                  </label>
+                </div>
+              )}
+              {editAuthType !== 'NONE' && editAuthType !== 'OAUTH2' && editAuthType !== 'LOGIN_TOKEN' && (
                 <p className="text-xs text-[var(--text-3)]">
                   Leave credential fields empty to keep the current values.
                 </p>
+              )}
+              {connector.type !== 'DATABASE' && connector.type !== 'MCP' && (
+                <HeadersEditor rows={editHeaderRows} onChange={setEditHeaderRows} />
               )}
               <div>
                 <label className="block text-sm font-medium mb-1">Instructions</label>
