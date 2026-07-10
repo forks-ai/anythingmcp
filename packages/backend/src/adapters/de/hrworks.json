@@ -2,19 +2,30 @@
   "slug": "hrworks",
   "name": "HR WORKS",
   "description": "Access HR WORKS, the German HR/payroll platform: employees, absences, sick leaves, remote work (home office), working times, projects, applicants, organization units, holidays and cost centers via the v2 REST API.",
-  "instructions": "This connector uses the HR WORKS v2 REST API (https://developers.hrworks.de).\n\n**Authentication model — IMPORTANT**: HR WORKS does not use a long-lived API key. Instead, you POST `{accessKey, secretAccessKey}` to `/v2/authentication` and receive a short-lived JWT (valid 15 minutes) which is then sent as `Authorization: Bearer <token>` on every subsequent call. This adapter stores a single bearer token (`HRWORKS_TOKEN`) supplied by you.\n\n**Getting a token** (run before importing the connector, then again whenever the token expires):\n\n```bash\ncurl -X POST https://api.hrworks.de/v2/authentication \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"accessKey\":\"YOUR_ACCESS_KEY\",\"secretAccessKey\":\"YOUR_SECRET_ACCESS_KEY\"}'\n```\n\nThe response contains `{\"token\": \"eyJ...\"}` — paste that JWT as `HRWORKS_TOKEN` when importing.\n\n**Token lifetime**: ~15 minutes. After expiration the API will reject calls with 401; you must mint a new token and re-import or update the connector. For long-running workflows, consider wrapping this adapter in a custom proxy that refreshes tokens automatically.\n\n**Sandbox**: HR WORKS provides a demo environment at `https://api.demo-hrworks.de`. Set `HRWORKS_BASE_URL=https://api.demo-hrworks.de` to test against demo data; otherwise the production endpoint `https://api.hrworks.de` is used.\n\n**Identifiers**: most person-related endpoints accept either the HR WORKS personnel number or the HR WORKS username. Use the optional `personIdentifierType` / `usePersonnelNumbers` parameters when the identifier you have on hand is not the default.\n\n**Date intervals**: most listing endpoints (absences, sick leaves, working times, remote work) require ISO `YYYY-MM-DD` `beginDate`/`endDate` — maximum span is one year (or 31 days if `interval=days`).\n\n**Pagination**: page size is 50; the API returns a `Link` header with next/prev URLs. Pass `page` to step through results.\n\n**Rate limit**: HR WORKS imposes per-tenant rate limits — see their developer portal for details.",
+  "instructions": "This connector uses the HR WORKS v2 REST API (https://developers.hrworks.de).\n\n**Authentication — automatic token refresh**: HR WORKS issues short-lived tokens (~15 minutes). This connector uses the `LOGIN_TOKEN` flow: it POSTs `{accessKey, secretAccessKey}` to `/v2/authentication`, reads the returned `token`, sends it as `Authorization: Bearer <token>`, and refreshes it automatically before expiry (and re-logs-in on a 401). You never handle tokens manually.\n\n**Setup**: create an API key pair in HR WORKS (Administration → API) and set:\n- `HRWORKS_ACCESS_KEY` = your access key\n- `HRWORKS_SECRET_ACCESS_KEY` = your secret access key\n\n**Sandbox**: HR WORKS provides a demo environment at `https://api.demo-hrworks.de`. To test against it, change the connector's Base URL and the `loginUrl` in the auth config to the demo host.\n\n**Identifiers**: most person-related endpoints accept either the HR WORKS personnel number or the HR WORKS username. Use the optional `personIdentifierType` / `usePersonnelNumbers` parameters when the identifier you have on hand is not the default.\n\n**Date intervals**: most listing endpoints (absences, sick leaves, working times, remote work) require ISO `YYYY-MM-DD` `beginDate`/`endDate` — maximum span is one year (or 31 days if `interval=days`).\n\n**Pagination**: page size is 50; the API returns a `Link` header with next/prev URLs. Pass `page` to step through results.\n\n**Rate limit**: HR WORKS imposes per-tenant rate limits — see their developer portal for details.",
   "region": "de",
   "category": "hr",
   "icon": "hrworks",
   "docsUrl": "https://developers.hrworks.de",
-  "requiredEnvVars": ["HRWORKS_TOKEN"],
+  "requiredEnvVars": ["HRWORKS_ACCESS_KEY", "HRWORKS_SECRET_ACCESS_KEY"],
   "connector": {
     "name": "HR WORKS",
     "type": "REST",
     "baseUrl": "https://api.hrworks.de",
-    "authType": "BEARER_TOKEN",
+    "authType": "LOGIN_TOKEN",
     "authConfig": {
-      "token": "{{HRWORKS_TOKEN}}"
+      "loginUrl": "https://api.hrworks.de/v2/authentication",
+      "loginMethod": "POST",
+      "loginBody": {
+        "accessKey": "${username}",
+        "secretAccessKey": "${password}"
+      },
+      "username": "{{HRWORKS_ACCESS_KEY}}",
+      "password": "{{HRWORKS_SECRET_ACCESS_KEY}}",
+      "tokenJsonPath": "token",
+      "tokenTTLSeconds": 900,
+      "proactiveRefreshSeconds": 120,
+      "refreshOn401": true
     }
   },
   "tools": [

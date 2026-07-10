@@ -8,7 +8,10 @@ import { AppShell } from '@/components/app-shell';
 import { Card } from '@/components/ui/card';
 import { McpAssignModal } from '@/components/mcp-assign-modal';
 import { AppSelect } from '@/components/ui/select';
+import { HeadersEditor, headerRowsToObject, type HeaderRow } from '@/components/headers-editor';
 import { cn } from '@/lib/utils';
+
+const DEFAULT_LOGIN_BODY = '{\n  "username": "${username}",\n  "password": "${password}"\n}';
 
 const CONNECTOR_TYPES = [
   { id: 'REST', name: 'REST API', description: 'Connect to any REST API. Import from OpenAPI/Swagger spec or configure manually.', tone: 'bg-[var(--t-info-bg)] text-[var(--t-info-fg)]' },
@@ -45,6 +48,16 @@ export default function NewConnectorPage() {
   const [oauthAuthUrl, setOauthAuthUrl] = useState('');
   const [oauthTokenUrl, setOauthTokenUrl] = useState('');
   const [oauthScopes, setOauthScopes] = useState('');
+  // LOGIN_TOKEN (credentials → short-lived token, auto-refreshed) fields
+  const [ltLoginUrl, setLtLoginUrl] = useState('');
+  const [ltMethod, setLtMethod] = useState('POST');
+  const [ltUsername, setLtUsername] = useState('');
+  const [ltPassword, setLtPassword] = useState('');
+  const [ltLoginBody, setLtLoginBody] = useState(DEFAULT_LOGIN_BODY);
+  const [ltTokenPath, setLtTokenPath] = useState('token');
+  const [ltTtl, setLtTtl] = useState('');
+  const [ltRefreshOn401, setLtRefreshOn401] = useState(true);
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
   const [dbReadOnly, setDbReadOnly] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -65,6 +78,27 @@ export default function NewConnectorPage() {
         return { token: authValue };
       case 'BASIC_AUTH':
         return { username: authKey, password: authValue };
+      case 'LOGIN_TOKEN': {
+        let loginBody: unknown;
+        const raw = ltLoginBody.trim();
+        if (raw) {
+          try {
+            loginBody = JSON.parse(raw);
+          } catch {
+            throw new Error('Login body must be valid JSON.');
+          }
+        }
+        return {
+          loginUrl: ltLoginUrl,
+          loginMethod: ltMethod || 'POST',
+          ...(loginBody !== undefined ? { loginBody } : {}),
+          username: ltUsername,
+          password: ltPassword,
+          tokenJsonPath: ltTokenPath || 'token',
+          ...(ltTtl.trim() ? { tokenTTLSeconds: Number(ltTtl) } : {}),
+          refreshOn401: ltRefreshOn401,
+        };
+      }
       case 'OAUTH2':
         if (selectedType !== 'MCP') {
           return {
@@ -96,6 +130,8 @@ export default function NewConnectorPage() {
       };
       const authConfig = buildAuthConfig();
       if (authConfig) data.authConfig = authConfig;
+      const headers = headerRowsToObject(headerRows);
+      if (Object.keys(headers).length > 0) data.headers = headers;
       if (specUrl) data.specUrl = specUrl;
       if (selectedType === 'DATABASE') {
         data.config = { readOnly: dbReadOnly };
@@ -134,6 +170,8 @@ export default function NewConnectorPage() {
       const data: any = { name: name || 'Test', type: selectedType, baseUrl, authType };
       const authConfig = buildAuthConfig();
       if (authConfig) data.authConfig = authConfig;
+      const headers = headerRowsToObject(headerRows);
+      if (Object.keys(headers).length > 0) data.headers = headers;
 
       const created = await connectors.create(data, token);
       const result = await connectors.test(created.id, token);
@@ -334,6 +372,7 @@ export default function NewConnectorPage() {
                     { value: 'BEARER_TOKEN', label: 'Bearer Token' },
                     { value: 'BASIC_AUTH', label: 'Basic Auth' },
                     { value: 'OAUTH2', label: 'OAuth 2.0' },
+                    { value: 'LOGIN_TOKEN', label: 'Login → Token (auto-refresh)' },
                   ]}
                 />
               </div>
@@ -406,6 +445,61 @@ export default function NewConnectorPage() {
                     <input type="password" value={authValue} onChange={(e) => setAuthValue(e.target.value)} className={inputClass} />
                   </div>
                 </div>
+              )}
+              {authType === 'LOGIN_TOKEN' && (
+                <div className="flex flex-col gap-3">
+                  <div className="rounded-[9px] border border-[var(--t-info-fg)]/20 bg-[var(--t-info-bg)] p-3 text-[12.5px] text-[var(--t-info-fg)]">
+                    For APIs with short-lived tokens (e.g. HRworks): we POST your credentials to the login endpoint, read the token from the response, send it as a Bearer token, and refresh it automatically before it expires.
+                  </div>
+                  <div>
+                    <label className={labelClass}>Login URL</label>
+                    <input type="text" value={ltLoginUrl} onChange={(e) => setLtLoginUrl(e.target.value)} placeholder="https://api.hrworks.de/v2/authentication" className={cn(inputClass, 'font-mono text-[13px]')} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelClass}>Username / Access key</label>
+                      <input type="text" value={ltUsername} onChange={(e) => setLtUsername(e.target.value)} placeholder="access key" className={cn(inputClass, 'font-mono text-[13px]')} />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Password / Secret</label>
+                      <input type="password" value={ltPassword} onChange={(e) => setLtPassword(e.target.value)} placeholder="secret" className={cn(inputClass, 'font-mono text-[13px]')} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Login request body (JSON)</label>
+                    <textarea value={ltLoginBody} onChange={(e) => setLtLoginBody(e.target.value)} rows={4} className={cn(inputClass, 'h-auto py-2 font-mono text-[13px]')} />
+                    <p className="mt-1.5 text-[11.5px] text-[var(--text-3)]">
+                      Body sent to the login URL. Use <code>{'${username}'}</code> / <code>{'${password}'}</code> placeholders. HRworks uses <code>{'{ "accessKey": "${username}", "secretAccessKey": "${password}" }'}</code>.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className={labelClass}>Method</label>
+                      <AppSelect
+                        value={ltMethod}
+                        onValueChange={setLtMethod}
+                        className={inputClass}
+                        options={[{ value: 'POST', label: 'POST' }, { value: 'GET', label: 'GET' }]}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Token JSON path</label>
+                      <input type="text" value={ltTokenPath} onChange={(e) => setLtTokenPath(e.target.value)} placeholder="token" className={cn(inputClass, 'font-mono text-[13px]')} />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Token TTL (s)</label>
+                      <input type="number" value={ltTtl} onChange={(e) => setLtTtl(e.target.value)} placeholder="900" className={cn(inputClass, 'font-mono text-[13px]')} />
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-[12.5px] text-[var(--text-2)]">
+                    <input type="checkbox" checked={ltRefreshOn401} onChange={(e) => setLtRefreshOn401(e.target.checked)} />
+                    Re-login and retry automatically on a 401 response
+                  </label>
+                </div>
+              )}
+
+              {selectedType !== 'DATABASE' && selectedType !== 'MCP' && (
+                <HeadersEditor rows={headerRows} onChange={setHeaderRows} />
               )}
 
               <div className="flex gap-[10px] pt-1">
