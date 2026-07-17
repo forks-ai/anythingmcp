@@ -20,6 +20,15 @@ interface PendingOAuthFlow {
   clientId: string;
   clientSecret?: string;
   tokenUrl: string;
+  /**
+   * How the client authenticates at the token endpoint:
+   *  - undefined / 'post' → client_id + client_secret in the request body
+   *    (RFC 6749 client_secret_post) — the historical default.
+   *  - 'basic'            → HTTP Basic Authorization header
+   *    (client_secret_basic). Required by providers like DATEV that reject
+   *    body credentials with 401 invalid_client.
+   */
+  tokenAuthMethod?: string;
   createdAt: number;
 }
 
@@ -151,11 +160,16 @@ export class McpOAuthService {
     clientId: string;
     clientSecret?: string;
     codeVerifier: string;
+    tokenAuthMethod?: string;
   }): Promise<{
     accessToken: string;
     refreshToken?: string;
     expiresIn?: number;
   }> {
+    const useBasic =
+      params.tokenAuthMethod === 'basic' ||
+      params.tokenAuthMethod === 'client_secret_basic';
+
     const body: Record<string, string> = {
       grant_type: 'authorization_code',
       code: params.code,
@@ -163,21 +177,35 @@ export class McpOAuthService {
       client_id: params.clientId,
       code_verifier: params.codeVerifier,
     };
-    if (params.clientSecret) {
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    };
+
+    if (useBasic && params.clientSecret) {
+      // client_secret_basic (RFC 6749 §2.3.1): credentials go in the
+      // Authorization header, NOT the body. Providers like DATEV reject a
+      // body-supplied client_secret for confidential clients with 401.
+      const basic = Buffer.from(
+        `${params.clientId}:${params.clientSecret}`,
+      ).toString('base64');
+      headers.Authorization = `Basic ${basic}`;
+    } else if (params.clientSecret) {
+      // client_secret_post (default): credentials in the body.
       body.client_secret = params.clientSecret;
     }
 
-    this.logger.debug(`Exchanging auth code at ${params.tokenUrl}`);
+    this.logger.debug(
+      `Exchanging auth code at ${params.tokenUrl} (auth=${useBasic ? 'basic' : 'post'})`,
+    );
 
     await assertSafeOutboundUrl(params.tokenUrl);
     const response = await axios.post(
       params.tokenUrl,
       new URLSearchParams(body).toString(),
       {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-        },
+        headers,
         timeout: 10000,
       },
     );

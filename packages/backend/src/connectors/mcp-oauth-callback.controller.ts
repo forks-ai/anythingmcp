@@ -64,6 +64,7 @@ export class McpOAuthCallbackController {
         clientId: flow.clientId,
         clientSecret: flow.clientSecret,
         codeVerifier: flow.codeVerifier,
+        tokenAuthMethod: flow.tokenAuthMethod,
       });
 
       this.logger.log(
@@ -80,6 +81,7 @@ export class McpOAuthCallbackController {
             tokenUrl: flow.tokenUrl,
             clientId: flow.clientId,
             clientSecret: flow.clientSecret,
+            tokenAuthMethod: flow.tokenAuthMethod,
             expiresIn: tokens.expiresIn,
             expiresAt: Date.now() + (tokens.expiresIn || 3600) * 1000,
             authorizedAt: new Date().toISOString(),
