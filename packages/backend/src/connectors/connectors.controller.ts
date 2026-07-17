@@ -722,6 +722,9 @@ export class ConnectorsController {
         clientId,
         clientSecret,
         tokenUrl: tokenEndpoint,
+        tokenAuthMethod: authConfig.tokenAuthMethod
+          ? String(authConfig.tokenAuthMethod)
+          : undefined,
         createdAt: Date.now(),
       });
 

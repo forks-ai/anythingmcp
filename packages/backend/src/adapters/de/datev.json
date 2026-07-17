@@ -18,6 +18,7 @@
       "clientSecret": "{{DATEV_CLIENT_SECRET}}",
       "authorizationUrl": "https://login.datev.de/openid/authorize",
       "tokenUrl": "https://api.datev.de/token",
+      "tokenAuthMethod": "basic",
       "scopes": "datev:accounting:clients accounting:clients:read accounting:documents"
     },
     "headers": {

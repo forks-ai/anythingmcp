@@ -150,8 +150,21 @@ export class OAuth2TokenService {
           grant_type: 'refresh_token',
           refresh_token: refreshToken,
         };
-        if (clientId) body.client_id = clientId;
-        if (clientSecret) body.client_secret = clientSecret;
+        const useBasic =
+          authConfig.tokenAuthMethod === 'basic' ||
+          authConfig.tokenAuthMethod === 'client_secret_basic';
+        if (useBasic && clientId && clientSecret) {
+          // client_secret_basic — credentials in the Authorization header.
+          // DATEV and other confidential-client providers reject body creds.
+          if (clientId) body.client_id = clientId;
+          const basic = Buffer.from(`${clientId}:${clientSecret}`).toString(
+            'base64',
+          );
+          headers.Authorization = `Basic ${basic}`;
+        } else {
+          if (clientId) body.client_id = clientId;
+          if (clientSecret) body.client_secret = clientSecret;
+        }
       }
 
       await assertSafeOutboundUrl(tokenUrl);
