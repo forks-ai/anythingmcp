@@ -89,7 +89,22 @@ export class McpOAuthCallbackController {
         },
       );
 
-      // 3. Auto-discover tools from the remote MCP server
+      // Reload the connector's tools into the in-memory MCP registry so the
+      // freshly-stored access token takes effect immediately. The registry
+      // caches a snapshot of authConfig (incl. the token) per tool, so without
+      // this a just-authorized connector would keep serving with the stale
+      // (token-less) snapshot. For REST/GraphQL OAuth connectors this is the
+      // ONLY reload — the MCP auto-discovery block below throws for non-MCP
+      // servers and never reaches its own reloadConnectorTools() call.
+      try {
+        await this.mcpServer.reloadConnectorTools(flow.connectorId);
+      } catch (reloadErr: any) {
+        this.logger.warn(
+          `Failed to reload tools after OAuth for connector ${flow.connectorId}: ${reloadErr.message}`,
+        );
+      }
+
+      // 3. Auto-discover tools from the remote MCP server (MCP connectors only)
       let toolsImported = 0;
       try {
         const connector = await this.connectorsService.findByIdInternal(
