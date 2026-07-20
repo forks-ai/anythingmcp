@@ -407,4 +407,48 @@ describe('OAuth2TokenService', () => {
       expect(token).toBe('fresh');
     });
   });
+
+  describe('rolling refresh tokens', () => {
+    it('refreshes using the freshest refresh token from the DB, not the stale snapshot', async () => {
+      // DB holds the rotated ("fresh") refresh token; the caller passes a stale
+      // snapshot. The refresh must use the DB value (DATEV invalidates the old one).
+      mockPrisma.connector.findUnique.mockResolvedValue({
+        authConfig: encrypt(
+          JSON.stringify({
+            tokenUrl: 'https://sandbox-api.datev.de/token',
+            refreshToken: 'FRESH_RT',
+            clientId: 'cid',
+            clientSecret: 'sec',
+            tokenAuthMethod: 'basic',
+          }),
+          encryptionKey,
+        ),
+      });
+      mockedAxios.post.mockResolvedValue({
+        data: { access_token: 'AT2', refresh_token: 'RT2', expires_in: 3600 },
+      });
+
+      const result = await service.refreshToken(
+        {
+          tokenUrl: 'https://sandbox-api.datev.de/token',
+          refreshToken: 'STALE_RT',
+          clientId: 'cid',
+          clientSecret: 'sec',
+          tokenAuthMethod: 'basic',
+        },
+        'conn-1',
+      );
+
+      expect(result).toBe('AT2');
+      const body = String(mockedAxios.post.mock.calls[0][1]);
+      expect(body).toContain('refresh_token=FRESH_RT');
+      expect(body).not.toContain('STALE_RT');
+      // Basic auth used (DATEV requires client_secret_basic), secret not in body.
+      const cfg = mockedAxios.post.mock.calls[0][2] as any;
+      expect(cfg.headers.Authorization).toBe(
+        'Basic ' + Buffer.from('cid:sec').toString('base64'),
+      );
+      expect(body).not.toContain('client_secret=');
+    });
+  });
 });

@@ -10,7 +10,7 @@ function makeController(overrides: {
   listToolsThrows?: boolean;
 } = {}) {
   const reloadConnectorTools = jest.fn().mockResolvedValue(undefined);
-  const update = jest.fn().mockResolvedValue(undefined);
+  const updateAuthConfigMerge = jest.fn().mockResolvedValue(undefined);
   const deletePendingFlow = jest.fn();
 
   const mcpOAuthService: any = {
@@ -31,7 +31,7 @@ function makeController(overrides: {
     deletePendingFlow,
   };
   const connectorsService: any = {
-    update,
+    updateAuthConfigMerge,
     findByIdInternal: jest.fn().mockResolvedValue({
       baseUrl: 'https://accounting-clients.api.datev.de/platform-sandbox/v2',
       headers: {},
@@ -54,7 +54,7 @@ function makeController(overrides: {
     mcpServer,
     configService,
   );
-  return { controller, reloadConnectorTools, update, mcpOAuthService };
+  return { controller, reloadConnectorTools, updateAuthConfigMerge, mcpOAuthService };
 }
 
 function makeRes() {
@@ -63,19 +63,16 @@ function makeRes() {
 
 describe('McpOAuthCallbackController', () => {
   it('reloads connector tools after storing the token even when MCP discovery throws (REST connector)', async () => {
-    const { controller, reloadConnectorTools, update } = makeController({
-      listToolsThrows: true,
-    });
+    const { controller, reloadConnectorTools, updateAuthConfigMerge } =
+      makeController({ listToolsThrows: true });
     const res = makeRes();
 
     await controller.oauthCallback('the-code', 'the-state', res);
 
-    // Token was persisted...
-    expect(update).toHaveBeenCalledWith(
+    // Token was persisted via a MERGE (preserves authorizationUrl/scopes)...
+    expect(updateAuthConfigMerge).toHaveBeenCalledWith(
       'conn-1',
-      expect.objectContaining({
-        authConfig: expect.objectContaining({ accessToken: 'AT' }),
-      }),
+      expect.objectContaining({ accessToken: 'AT', tokenAuthMethod: 'basic' }),
     );
     // ...and the registry was reloaded despite discovery throwing.
     expect(reloadConnectorTools).toHaveBeenCalledWith('conn-1');

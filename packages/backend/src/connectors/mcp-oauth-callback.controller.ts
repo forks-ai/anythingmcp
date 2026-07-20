@@ -71,23 +71,20 @@ export class McpOAuthCallbackController {
         `OAuth tokens obtained for connector ${flow.connectorId}`,
       );
 
-      // 2. Store tokens (encrypted) in the connector's authConfig
-      await this.connectorsService.update(
-        flow.connectorId,
-        {
-          authConfig: {
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-            tokenUrl: flow.tokenUrl,
-            clientId: flow.clientId,
-            clientSecret: flow.clientSecret,
-            tokenAuthMethod: flow.tokenAuthMethod,
-            expiresIn: tokens.expiresIn,
-            expiresAt: Date.now() + (tokens.expiresIn || 3600) * 1000,
-            authorizedAt: new Date().toISOString(),
-          },
-        },
-      );
+      // 2. Store tokens (encrypted) in the connector's authConfig. Merge, don't
+      // replace — preserves static config (authorizationUrl, scopes) needed for
+      // later re-authorization.
+      await this.connectorsService.updateAuthConfigMerge(flow.connectorId, {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        tokenUrl: flow.tokenUrl,
+        clientId: flow.clientId,
+        clientSecret: flow.clientSecret,
+        tokenAuthMethod: flow.tokenAuthMethod,
+        expiresIn: tokens.expiresIn,
+        expiresAt: Date.now() + (tokens.expiresIn || 3600) * 1000,
+        authorizedAt: new Date().toISOString(),
+      });
 
       // Reload the connector's tools into the in-memory MCP registry so the
       // freshly-stored access token takes effect immediately. The registry
