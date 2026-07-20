@@ -100,6 +100,17 @@ export class OAuth2TokenService {
     authConfig: Record<string, unknown>,
     connectorId?: string,
   ): Promise<string | null> {
+    // Rolling refresh tokens (e.g. DATEV rotates the refresh token on every
+    // use) invalidate the previous one. The in-memory registry caches an
+    // authConfig snapshot that is NOT updated after a refresh — only the DB is
+    // (persistRefreshedToken). So for a persisted connector always re-read the
+    // freshest authConfig from the DB before refreshing; otherwise a second
+    // refresh would replay the already-rotated token and DATEV would reject it.
+    if (connectorId) {
+      const fresh = await this.loadAuthConfigFromDb(connectorId);
+      if (fresh) authConfig = { ...authConfig, ...fresh };
+    }
+
     const tokenUrl = String(authConfig.tokenUrl || '');
     const grant = String(authConfig.grant || 'refresh_token');
     const refreshToken = String(authConfig.refreshToken || '');
@@ -263,6 +274,29 @@ export class OAuth2TokenService {
    * Update the connector's encrypted authConfig with the new access token
    * so it survives server restarts.
    */
+  /**
+   * Reads and decrypts the connector's current authConfig straight from the DB.
+   * Used to obtain the freshest (possibly-rotated) refresh token, bypassing the
+   * stale in-memory registry snapshot. Returns null if unavailable.
+   */
+  private async loadAuthConfigFromDb(
+    connectorId: string,
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      const connector = await this.prisma.connector.findUnique({
+        where: { id: connectorId },
+        select: { authConfig: true },
+      });
+      if (!connector?.authConfig) return null;
+      return JSON.parse(decrypt(connector.authConfig, this.encryptionKey));
+    } catch (err: any) {
+      this.logger.warn(
+        `OAuth2: failed to load fresh authConfig for ${connectorId}: ${err.message}`,
+      );
+      return null;
+    }
+  }
+
   private async persistRefreshedToken(
     connectorId: string,
     newAccessToken: string,

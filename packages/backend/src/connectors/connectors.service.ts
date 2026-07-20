@@ -157,6 +157,31 @@ export class ConnectorsService {
     });
   }
 
+  /**
+   * Merges `patch` into the connector's existing (decrypted) authConfig and
+   * re-encrypts it, instead of replacing the whole object. Used by the OAuth
+   * callback so storing the freshly-issued tokens does not drop static config
+   * such as `authorizationUrl` and `scopes` (needed for later re-authorization).
+   */
+  async updateAuthConfigMerge(
+    id: string,
+    patch: Record<string, unknown>,
+  ): Promise<Connector> {
+    const connector = await this.findByIdInternal(id);
+    const existing = connector.authConfig
+      ? (JSON.parse(
+          decrypt(connector.authConfig, this.encryptionKey),
+        ) as Record<string, unknown>)
+      : {};
+    const merged = { ...existing, ...patch };
+    return this.prisma.connector.update({
+      where: { id },
+      data: {
+        authConfig: encrypt(JSON.stringify(merged), this.encryptionKey),
+      },
+    });
+  }
+
   async remove(id: string): Promise<void> {
     await this.findById(id);
     await this.prisma.connector.delete({ where: { id } });
